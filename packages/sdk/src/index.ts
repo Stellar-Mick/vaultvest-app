@@ -6,5 +6,6 @@
  * are added to this barrel as they land in subsequent commits.
  */
 export * from './client.js';
+export * from './contract.js';
 export * from './types.js';
 export * from './xdr.js';
