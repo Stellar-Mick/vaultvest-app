@@ -14,7 +14,7 @@
  *  - Errors are returned in-band as `{ code, message }`, not thrown — every call
  *    below normalizes that into a thrown `Error` for the UI to catch.
  */
-import { TransactionBuilder } from '@stellar/stellar-sdk';
+import { Transaction, TransactionBuilder } from '@stellar/stellar-sdk';
 import {
   getAddress,
   getNetwork,
@@ -142,7 +142,11 @@ export async function signAndSubmit(
     throw new Error('Freighter sign returned no signer address.');
   }
 
-  const tx = TransactionBuilder.fromXDR(signedTxXdr, networkPassphrase);
-  const response = await getSorobanClient().send(tx);
+  const parsed = TransactionBuilder.fromXDR(signedTxXdr, networkPassphrase);
+  if (!(parsed instanceof Transaction)) {
+    // We only ever sign regular transactions; fee-bump envelopes are unexpected.
+    throw new Error('Freighter returned a fee-bump transaction; expected a regular transaction.');
+  }
+  const response = await getSorobanClient().send(parsed);
   return { hash: response.hash, status: response.status };
 }
