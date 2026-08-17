@@ -310,7 +310,19 @@ export class SorobanClient {
   async simulate(
     tx: Transaction
   ): Promise<rpc.Api.SimulateTransactionSuccessResponse> {
-    const sim = await this.server.simulateTransaction(tx);
+    let sim: rpc.Api.SimulateTransactionResponse;
+    try {
+      sim = await this.server.simulateTransaction(tx);
+    } catch (error) {
+      // The RPC can surface a failed simulation as a thrown JSON-RPC error object
+      // (message like "HostError: Error(Contract, #5) ...") instead of a parsed
+      // error response — map those to typed errors as well.
+      const mapped = parseContractError(error);
+      if (mapped) {
+        throw mapped;
+      }
+      throw error;
+    }
     throwIfSimulationError(sim);
     return sim;
   }
