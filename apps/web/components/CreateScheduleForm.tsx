@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiErrorToMessage, getErrorMessage } from '@/lib/errors';
 import {
   signAndSubmit,
   type ConnectedWallet,
@@ -125,7 +126,7 @@ export function CreateScheduleForm() {
         error?: { code?: number; message?: string };
       };
       if (!response.ok || !data.xdr) {
-        throw new Error(data.error?.message ?? 'Failed to build transaction.');
+        throw new Error(apiErrorToMessage(data.error));
       }
 
       const { hash } = await signAndSubmit(data.xdr, wallet.networkPassphrase);
@@ -136,7 +137,7 @@ export function CreateScheduleForm() {
       }
       setSuccessHash(hash);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      setError(getErrorMessage(err));
     } finally {
       setSubmitting(false);
     }

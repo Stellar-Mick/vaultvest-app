@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { apiErrorToMessage, getErrorMessage } from '@/lib/errors';
 import {
   signAndSubmit,
   type ConnectedWallet,
@@ -67,7 +68,7 @@ export default function ApprovePage() {
       setSchedule(sch);
       setApprovals(count);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load schedule.');
+      setError(getErrorMessage(err));
       setSchedule(null);
       setApprovals(null);
     } finally {
@@ -99,7 +100,7 @@ export default function ApprovePage() {
         error?: { code?: number; message?: string };
       };
       if (!response.ok || !data.xdr) {
-        throw new Error(data.error?.message ?? 'Failed to build transaction.');
+        throw new Error(apiErrorToMessage(data.error));
       }
       const { hash } = await signAndSubmit(data.xdr, wallet.networkPassphrase);
       const finalized = await waitForTransaction(hash);
@@ -110,7 +111,7 @@ export default function ApprovePage() {
       setSuccess(`Approval recorded (${hash.slice(0, 12)}…).`);
       await load(scheduleId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong.');
+      setError(getErrorMessage(err));
     } finally {
       setApproving(false);
     }
