@@ -5,6 +5,13 @@
   "description": "Lightweight polling service that reads VaultVest contract events from Soroban RPC.",
   "type": "module",
   "scripts": {
-    "start": "tsx src/poll.ts"
+    "start": "tsx src/poll.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^16.2.0",
+    "@vaultvest/sdk": "^0.1.0",
+    "tsx": "^4.23.12",
+    "typescript": "^5.9.3"
   }
 }
