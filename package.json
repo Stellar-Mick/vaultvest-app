@@ -1,0 +1,19 @@
+{
+  "name": "vaultvest-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Frontend and supporting services for VaultVest — a governance-gated token vesting dApp on Stellar. Consumes the deployed vaultvest-contract via Soroban RPC.",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "indexer"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

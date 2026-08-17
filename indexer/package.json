@@ -1,0 +1,10 @@
+{
+  "name": "@vaultvest/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lightweight polling service that reads VaultVest contract events from Soroban RPC.",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/poll.ts"
+  }
+}

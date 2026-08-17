@@ -1,0 +1,11 @@
+{
+  "name": "@vaultvest/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "VaultVest Next.js frontend — funder create flow, signer approval flow, beneficiary dashboard.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  }
+}
