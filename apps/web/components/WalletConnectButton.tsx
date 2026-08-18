@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import {
   connectWallet,
+  detectWallet,
   getWalletAddress,
   getWalletNetwork,
   type ConnectedWallet,
@@ -27,23 +28,33 @@ export function shortenAddress(address: string): string {
 
 /**
  * Connect/disconnect button for the Freighter browser extension. Restores the
- * already-authorized account on mount without prompting.
+ * already-authorized account on mount without prompting. Shows a clear error
+ * when no wallet extension is detected.
  */
 export function WalletConnectButton({ onConnected }: WalletConnectButtonProps) {
   const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Restore an existing authorization on mount (no prompt).
+  // Detect wallet availability and restore existing authorization on mount.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const address = await getWalletAddress();
-      if (!address || cancelled) return;
+      // Pre-flight: is a wallet extension even installed?
+      const availability = detectWallet();
+      if (!availability.available) {
+        if (!cancelled) setError(availability.reason ?? null);
+        return;
+      }
+
+      // Wallet is installed — try to restore a prior authorization (no prompt).
       try {
+        const address = await getWalletAddress();
+        if (!address || cancelled) return;
         const network = await getWalletNetwork();
         const restored = { address, ...network };
         setWallet(restored);
+        setError(null);
         onConnected?.(restored);
       } catch {
         // Ignore network-read failures on restore; user can reconnect explicitly.
@@ -65,6 +76,7 @@ export function WalletConnectButton({ onConnected }: WalletConnectButtonProps) {
       }
       const connected = await connectWallet();
       setWallet(connected);
+      setError(null);
       onConnected?.(connected);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to connect wallet.');
@@ -82,7 +94,9 @@ export function WalletConnectButton({ onConnected }: WalletConnectButtonProps) {
             ? `${shortenAddress(wallet.address)} — disconnect`
             : 'Connect wallet'}
       </Button>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      {error && (
+        <p className="max-w-[220px] text-right text-xs text-destructive">{error}</p>
+      )}
     </div>
   );
 }
