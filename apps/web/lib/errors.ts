@@ -37,6 +37,56 @@ const VAULTVEST_ERROR_MESSAGES: Record<VaultVestError, string> = {
 };
 
 /**
+ * SEP-41 token contract error code for "trustline entry is missing for account".
+ *
+ * This is a *token-contract* error, NOT a VaultVestError: the VaultVestError
+ * enum above spans only codes 1-12, so a `#13` revert can never come from the
+ * VaultVest contract itself. It surfaces as a raw `Error(Contract, #13)` string
+ * during `create_schedule` simulation, when the funder has no trustline for the
+ * token being escrowed (the operation nests a call into the token contract).
+ *
+ * Deliberately kept OUT of VAULTVEST_ERROR_MESSAGES and handled in a separate
+ * branch below so the code keeps the two rejection sources distinct: VaultVest
+ * did not reject this call — the token contract did.
+ */
+export const TOKEN_CONTRACT_TRUSTLINE_ERROR_CODE = 13;
+
+/** User-facing copy for the token-contract trustline error (see above). */
+export const TOKEN_CONTRACT_TRUSTLINE_ERROR_MESSAGE =
+  "Your account doesn't have a trustline for this token yet. Add a trustline before creating a schedule.";
+
+/** Matches a raw Soroban `Error(Contract, #N)` string inside an error message. */
+const CONTRACT_ERROR_PATTERN = /Error\(\s*Contract\s*,\s*#(\d+)\s*\)/;
+
+/**
+ * Detect a token-contract-level "trustline entry is missing" revert (code 13)
+ * in a non-VaultVest error and return its user-facing message, or `null`.
+ *
+ * Typed {@link ContractCallError}s are VaultVest reverts (codes 1-12) and can
+ * never carry code 13, so they short-circuit here — this branch only ever
+ * handles errors that did NOT originate from the VaultVest contract.
+ *
+ * @param error - the caught error to inspect
+ * @returns the trustline message, or `null` when this is not a token code-13 error
+ */
+function tokenTrustlineErrorMessage(error: unknown): string | null {
+  if (error instanceof ContractCallError) {
+    return null;
+  }
+  const message =
+    typeof error === 'string'
+      ? error
+      : error instanceof Error
+        ? error.message
+        : '';
+  const match = CONTRACT_ERROR_PATTERN.exec(message);
+  if (!match || Number(match[1]) !== TOKEN_CONTRACT_TRUSTLINE_ERROR_CODE) {
+    return null;
+  }
+  return TOKEN_CONTRACT_TRUSTLINE_ERROR_MESSAGE;
+}
+
+/**
  * Map any thrown error to a user-facing message. Contract reverts (typed
  * {@link ContractCallError}) get their friendly copy; everything else falls back
  * to the raw error message.
@@ -46,7 +96,13 @@ const VAULTVEST_ERROR_MESSAGES: Record<VaultVestError, string> = {
  */
 export function getErrorMessage(error: unknown): string {
   if (error instanceof ContractCallError) {
+    // VaultVest rejected the call (codes 1-12) — use its typed mapping.
     return VAULTVEST_ERROR_MESSAGES[error.code] ?? error.message;
+  }
+  // Not a VaultVest revert — check the token-contract-level trustline error
+  // (code 13) before falling back to the raw message.
+  if (tokenTrustlineErrorMessage(error) !== null) {
+    return TOKEN_CONTRACT_TRUSTLINE_ERROR_MESSAGE;
   }
   return error instanceof Error ? error.message : 'Something went wrong.';
 }
@@ -66,7 +122,17 @@ export function apiErrorToMessage(
     return 'Failed to build transaction.';
   }
   if (error.code !== undefined && error.code in VAULTVEST_ERROR_MESSAGES) {
+    // VaultVest rejected the call (codes 1-12).
     return VAULTVEST_ERROR_MESSAGES[error.code as VaultVestError];
+  }
+  // Token-contract-level errors live outside the VaultVestError range and get
+  // their own branch (see TOKEN_CONTRACT_TRUSTLINE_ERROR_CODE). Code 13 may
+  // arrive as a numeric `code` or embedded in the raw `message`.
+  if (
+    error.code === TOKEN_CONTRACT_TRUSTLINE_ERROR_CODE ||
+    tokenTrustlineErrorMessage(error.message) !== null
+  ) {
+    return TOKEN_CONTRACT_TRUSTLINE_ERROR_MESSAGE;
   }
   return error.message ?? 'Failed to build transaction.';
 }

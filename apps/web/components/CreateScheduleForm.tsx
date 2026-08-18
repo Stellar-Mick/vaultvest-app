@@ -180,6 +180,9 @@ export function CreateScheduleForm() {
               value={token}
               onChange={(e) => setToken(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              The funder account must already hold a trustline for this token.
+            </p>
           </div>
 
           <div className="space-y-2">
