@@ -23,7 +23,7 @@ import {
   signTransaction,
 } from '@stellar/freighter-api';
 
-import { getSorobanClient } from '@vaultvest/sdk';
+import { sdkClient } from './soroban-client';
 
 /** FreighterApiError shape (code, message) as returned in-band by the API. */
 interface FreighterApiError {
@@ -147,6 +147,6 @@ export async function signAndSubmit(
     // We only ever sign regular transactions; fee-bump envelopes are unexpected.
     throw new Error('Freighter returned a fee-bump transaction; expected a regular transaction.');
   }
-  const response = await getSorobanClient().send(parsed);
+  const response = await sdkClient.send(parsed);
   return { hash: response.hash, status: response.status };
 }

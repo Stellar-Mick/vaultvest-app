@@ -18,6 +18,7 @@ import {
 } from '@/lib/freighter';
 import {
   contractErrorFromFinalizedTx,
+  sdkClient,
   waitForTransaction,
 } from '@/lib/soroban-client';
 
@@ -49,8 +50,8 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const [sch, vested] = await Promise.all([
-        getSchedule(parsed),
-        getVestedAmount(parsed),
+        getSchedule(parsed, sdkClient),
+        getVestedAmount(parsed, sdkClient),
       ]);
       setSchedule(sch);
       setVestedAmount(vested);

@@ -20,6 +20,7 @@ import {
 } from '@/lib/freighter';
 import {
   contractErrorFromFinalizedTx,
+  sdkClient,
   waitForTransaction,
 } from '@/lib/soroban-client';
 
@@ -62,8 +63,8 @@ export default function ApprovePage() {
     setLoading(true);
     try {
       const [sch, count] = await Promise.all([
-        getSchedule(parsed),
-        getApprovalCount(parsed),
+        getSchedule(parsed, sdkClient),
+        getApprovalCount(parsed, sdkClient),
       ]);
       setSchedule(sch);
       setApprovals(count);

@@ -12,11 +12,47 @@
 import {
   contractErrorFromTransactionMeta,
   ContractCallError,
-  getSorobanClient,
-  type SorobanClient,
+  SorobanClient,
+  type SdkConfig,
 } from '@vaultvest/sdk';
 
 let client: SorobanClient | null = null;
+
+/**
+ * Build SDK config from Next.js env vars.
+ *
+ * IMPORTANT: Because the SDK lives in a workspace package (`packages/sdk`),
+ * Next.js's `NEXT_PUBLIC_*` webpack replacement does NOT reach it —
+ * `transpilePackages` transpiles but does not inject env values. We must
+ * read `process.env` here (inside the Next.js project directory) where the
+ * replacement DOES work, then pass the values to the SDK explicitly.
+ */
+function buildConfig(): SdkConfig {
+  const contractId = process.env.NEXT_PUBLIC_CONTRACT_ID;
+  const rpcUrl = process.env.NEXT_PUBLIC_SOROBAN_RPC_URL;
+  const networkPassphrase = process.env.NEXT_PUBLIC_NETWORK_PASSPHRASE;
+  if (!contractId) {
+    throw new Error(
+      'Missing required env var NEXT_PUBLIC_CONTRACT_ID (deployed VaultVest contract address).'
+    );
+  }
+  if (!rpcUrl) {
+    throw new Error(
+      'Missing required env var NEXT_PUBLIC_SOROBAN_RPC_URL (Soroban RPC endpoint).'
+    );
+  }
+  if (!networkPassphrase) {
+    throw new Error(
+      'Missing required env var NEXT_PUBLIC_NETWORK_PASSPHRASE (network identifier for tx building).'
+    );
+  }
+  return {
+    contractId,
+    rpcUrl,
+    networkPassphrase,
+    tokenContractId: process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ID,
+  };
+}
 
 /**
  * Lazily-initialized shared SDK client. Throws with a descriptive message when
@@ -24,9 +60,17 @@ let client: SorobanClient | null = null;
  * actually calls it, not at import time.
  */
 function getClient(): SorobanClient {
-  client ??= getSorobanClient();
+  client ??= new SorobanClient(buildConfig());
   return client;
 }
+
+/**
+ * Configured SDK client instance, ready for use by pages and components.
+ * Import this instead of calling `getSorobanClient()` from the SDK — the SDK's
+ * default client reads `process.env` which is NOT replaced by Next.js in
+ * workspace packages.
+ */
+export const sdkClient = getClient();
 
 /** Parsed response of `rpc.Server.getTransaction`. */
 type GetTransactionResponse = Awaited<
