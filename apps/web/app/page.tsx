@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { BadgeCheck, Landmark, Lock } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { NETWORK_LABEL } from '@/lib/explorer';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -20,7 +21,7 @@ export default function LandingPage() {
     <main className="container flex min-h-screen flex-col items-center justify-center py-16">
       <div className="flex max-w-2xl flex-col items-center text-center">
         <Badge className="mb-4" variant="secondary">
-          Stellar Testnet
+          Stellar {NETWORK_LABEL}
         </Badge>
         <h1 className="text-4xl font-bold tracking-tight sm:text-6xl">
           VaultVest

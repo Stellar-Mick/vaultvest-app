@@ -1,43 +1,52 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
+import { Suspense, useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { getSchedule, getVestedAmount, type Schedule } from '@vaultvest/sdk';
 
+import { Identifier } from '@/components/Identifier';
 import { ScheduleCard } from '@/components/ScheduleCard';
-import { WalletConnectButton } from '@/components/WalletConnectButton';
+import { useWallet } from '@/components/WalletProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { apiErrorToMessage, getErrorMessage } from '@/lib/errors';
-import {
-  signAndSubmit,
-  type ConnectedWallet,
-} from '@/lib/freighter';
-import {
-  contractErrorFromFinalizedTx,
-  getSdkClient,
-  waitForTransaction,
-} from '@/lib/soroban-client';
+import { getErrorMessage } from '@/lib/errors';
+import { getSdkClient } from '@/lib/soroban-client';
+import { submitWrite } from '@/lib/write-flow';
 
 /**
- * Beneficiary flow: look up a schedule by id, view vested progress, and withdraw.
- * Vested amounts always come from the contract's vested_amount — never computed
- * client-side. Withdraw is built by /api/tx and signed with Freighter.
+ * Schedule view for funders and beneficiaries: look up a schedule by id, see
+ * vested progress, withdraw (beneficiary) or revoke (funder). Vested amounts
+ * always come from the contract's vested_amount — never computed client-side.
+ *
+ * Accepts `?id=42` so the create flow can link straight here.
  */
 export default function DashboardPage() {
-  const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
+  // useSearchParams opts its subtree into client rendering; the Suspense
+  // boundary lets the shell still prerender statically.
+  return (
+    <Suspense fallback={null}>
+      <DashboardInner />
+    </Suspense>
+  );
+}
+
+function DashboardInner() {
+  const { wallet } = useWallet();
+  const searchParams = useSearchParams();
+
   const [scheduleId, setScheduleId] = useState('');
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [vestedAmount, setVestedAmount] = useState<bigint | null>(null);
   const [loading, setLoading] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
+  const [revoking, setRevoking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [success, setSuccess] = useState<{ text: string; hash: string } | null>(null);
 
-  const load = async (id: string) => {
+  const load = useCallback(async (id: string) => {
     setError(null);
     setSuccess(null);
     let parsed: bigint;
@@ -62,68 +71,59 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const handleWithdraw = async () => {
+  // Deep link: /dashboard?id=42 loads immediately.
+  useEffect(() => {
+    const id = searchParams.get('id');
+    if (id && /^\d+$/.test(id)) {
+      setScheduleId(id);
+      void load(id);
+    }
+  }, [searchParams, load]);
+
+  const runWrite = async (
+    kind: 'withdraw' | 'revoke',
+    setBusy: (b: boolean) => void,
+    successText: string
+  ) => {
     if (!wallet || !schedule) return;
     setError(null);
     setSuccess(null);
-    setWithdrawing(true);
+    setBusy(true);
     try {
-      const response = await fetch('/api/tx', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'withdraw',
-          scheduleId: scheduleId.trim(),
-          caller: wallet.address,
-        }),
-      });
-      const data = (await response.json()) as {
-        xdr?: string;
-        error?: { code?: number; message?: string };
-      };
-      if (!response.ok || !data.xdr) {
-        throw new Error(apiErrorToMessage(data.error));
-      }
-      // The returned XDR is verified in the browser against this expectation
-      // before the wallet is asked to sign it (see lib/tx-guard.ts). The
-      // schedule's own token is the only other contract its authorization tree
-      // may legitimately touch.
-      const { hash } = await signAndSubmit(data.xdr, wallet, {
-        functionName: 'withdraw',
-        extraAuthorizedContracts: [schedule.token],
-      });
-      const finalized = await waitForTransaction(hash);
-      if (finalized.status !== 'SUCCESS') {
-        const mapped = contractErrorFromFinalizedTx(finalized);
-        throw mapped ?? new Error('Transaction failed on-chain.');
-      }
-      setSuccess(`Withdrawal completed (${hash.slice(0, 12)}…).`);
+      const { hash } = await submitWrite(
+        { type: kind, scheduleId: scheduleId.trim(), caller: wallet.address },
+        wallet,
+        {
+          functionName: kind,
+          // Withdraw moves tokens; the schedule's own token is the one other
+          // contract its authorization tree may touch. Revoke touches none.
+          extraAuthorizedContracts: kind === 'withdraw' ? [schedule.token] : [],
+        }
+      );
+      setSuccess({ text: successText, hash });
       await load(scheduleId);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
-      setWithdrawing(false);
+      setBusy(false);
     }
   };
 
   return (
     <main className="container flex min-h-screen flex-col py-12">
       <div className="mb-8">
-        <Button asChild variant="ghost" size="sm">
-          <Link href="/">← Home</Link>
-        </Button>
-        <h1 className="mt-4 text-3xl font-bold tracking-tight">Dashboard</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
         <p className="mt-2 text-muted-foreground">
-          Track vested amounts and withdraw tokens as the beneficiary.
+          Track vested amounts, withdraw as the beneficiary, or revoke as the funder.
         </p>
       </div>
 
       <div className="max-w-2xl space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle>Find your schedule</CardTitle>
+            <CardTitle>Find a schedule</CardTitle>
             <CardDescription>
               Enter the schedule ID you received when it was created.
             </CardDescription>
@@ -160,30 +160,29 @@ export default function DashboardPage() {
               vestedAmount={vestedAmount}
               walletAddress={wallet?.address ?? null}
               withdrawing={withdrawing}
-              onWithdraw={() => void handleWithdraw()}
+              revoking={revoking}
+              onWithdraw={() => void runWrite('withdraw', setWithdrawing, 'Withdrawal completed')}
+              onRevoke={() => void runWrite('revoke', setRevoking, 'Schedule revoked')}
             />
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                {wallet
-                  ? wallet.address === schedule.beneficiary
-                    ? 'Connected as the beneficiary.'
-                    : 'Connected wallet is not this schedule\'s beneficiary.'
-                  : 'Connect your wallet to withdraw.'}
+                {wallet ? 'Actions above reflect your role on this schedule.' : 'Connect your wallet to act on this schedule.'}
               </p>
-              <div className="flex items-center gap-2">
-                <WalletConnectButton onConnected={setWallet} />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => void load(scheduleId)}
-                  disabled={loading}
-                  title="Refresh"
-                >
-                  <RefreshCw className={loading ? 'animate-spin' : undefined} />
-                </Button>
-              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => void load(scheduleId)}
+                disabled={loading}
+                title="Refresh"
+              >
+                <RefreshCw className={loading ? 'animate-spin' : undefined} />
+              </Button>
             </div>
-            {success && <p className="text-sm text-green-600">{success}</p>}
+            {success && (
+              <p className="flex flex-wrap items-center gap-2 text-sm text-green-600">
+                {success.text}. <Identifier value={success.hash} kind="tx" />
+              </p>
+            )}
           </div>
         )}
       </div>

@@ -1,23 +1,20 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { Loader2, Wallet } from 'lucide-react';
 import { StrKey } from '@stellar/stellar-sdk';
+import { decodeU64 } from '@vaultvest/sdk';
 
+import { Identifier } from '@/components/Identifier';
 import { WalletConnectButton } from '@/components/WalletConnectButton';
+import { useWallet } from '@/components/WalletProvider';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { apiErrorToMessage, getErrorMessage } from '@/lib/errors';
-import {
-  signAndSubmit,
-  type ConnectedWallet,
-} from '@/lib/freighter';
-import {
-  contractErrorFromFinalizedTx,
-  waitForTransaction,
-} from '@/lib/soroban-client';
+import { getErrorMessage } from '@/lib/errors';
+import { submitWrite } from '@/lib/write-flow';
 
 /** Default SEP-41 token for demo schedules (from env, inlined at build time). */
 const DEFAULT_TOKEN = process.env.NEXT_PUBLIC_TOKEN_CONTRACT_ID ?? '';
@@ -72,7 +69,7 @@ function parseSigners(raw: string): string[] {
  * semantics (threshold, time range, amounts) are enforced by the contract.
  */
 export function CreateScheduleForm() {
-  const [wallet, setWallet] = useState<ConnectedWallet | null>(null);
+  const { wallet } = useWallet();
   const [beneficiary, setBeneficiary] = useState('');
   const [token, setToken] = useState(DEFAULT_TOKEN);
   const [totalAmount, setTotalAmount] = useState('');
@@ -83,7 +80,11 @@ export function CreateScheduleForm() {
   const [threshold, setThreshold] = useState('1');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successHash, setSuccessHash] = useState<string | null>(null);
+  const [created, setCreated] = useState<{
+    hash: string;
+    /** Schedule id decoded from the contract's return value, if decodable. */
+    scheduleId: bigint | null;
+  } | null>(null);
 
   const validate = (): string | null => {
     if (!wallet) return 'Connect your wallet first.';
@@ -117,7 +118,7 @@ export function CreateScheduleForm() {
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError(null);
-    setSuccessHash(null);
+    setCreated(null);
 
     const problem = validate();
     if (problem) {
@@ -128,49 +129,39 @@ export function CreateScheduleForm() {
 
     setSubmitting(true);
     try {
-      const start = toUnixSeconds(startTs);
-      const end = toUnixSeconds(endTs);
-      const cliff = toUnixSeconds(cliffTs);
-      const response = await fetch('/api/tx', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const { hash, finalized } = await submitWrite(
+        {
           type: 'create_schedule',
           params: {
             funder: wallet.address,
             beneficiary: beneficiary.trim(),
             token: token.trim(),
-            totalAmount: String(totalAmount.trim()),
-            startTs: String(start),
-            endTs: String(end),
-            cliffTs: String(cliff),
+            totalAmount: totalAmount.trim(),
+            startTs: String(toUnixSeconds(startTs)),
+            endTs: String(toUnixSeconds(endTs)),
+            cliffTs: String(toUnixSeconds(cliffTs)),
             signers: parseSigners(signers),
             threshold: Number(threshold),
           },
-        }),
-      });
-      const data = (await response.json()) as {
-        xdr?: string;
-        error?: { code?: number; message?: string };
-      };
-      if (!response.ok || !data.xdr) {
-        throw new Error(apiErrorToMessage(data.error));
-      }
+        },
+        wallet,
+        {
+          functionName: 'create_schedule',
+          // Escrowing pulls tokens from the funder, so the token contract is the
+          // one additional contract the authorization tree may touch.
+          extraAuthorizedContracts: [token.trim()],
+        }
+      );
 
-      // The returned XDR is verified in the browser against this expectation
-      // before the wallet is asked to sign it (see lib/tx-guard.ts). Escrowing
-      // pulls tokens from the funder, so the token contract entered above is the
-      // one additional contract its authorization tree may touch.
-      const { hash } = await signAndSubmit(data.xdr, wallet, {
-        functionName: 'create_schedule',
-        extraAuthorizedContracts: [token.trim()],
-      });
-      const finalized = await waitForTransaction(hash);
-      if (finalized.status !== 'SUCCESS') {
-        const mapped = contractErrorFromFinalizedTx(finalized);
-        throw mapped ?? new Error('Transaction failed on-chain.');
+      // `create_schedule` returns the new u64 id. Until now the funder had no
+      // way to learn it from the app — it had to be dug out of an explorer.
+      let scheduleId: bigint | null = null;
+      try {
+        if (finalized.returnValue) scheduleId = decodeU64(finalized.returnValue);
+      } catch {
+        // Unexpected return shape; fall back to showing only the tx hash.
       }
-      setSuccessHash(hash);
+      setCreated({ hash, scheduleId });
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -189,11 +180,17 @@ export function CreateScheduleForm() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="flex items-center justify-between rounded-md border p-3">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Wallet className="h-4 w-4" />
-            {wallet ? `Funder: ${wallet.address}` : 'Connect your wallet to fund this schedule'}
+          <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+            <Wallet className="h-4 w-4 shrink-0" />
+            {wallet ? (
+              <span className="flex min-w-0 items-center gap-2">
+                Funder: <Identifier value={wallet.address} kind="address" />
+              </span>
+            ) : (
+              'Connect your wallet to fund this schedule'
+            )}
           </div>
-          <WalletConnectButton onConnected={setWallet} />
+          <WalletConnectButton hideError size="sm" />
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -293,10 +290,39 @@ export function CreateScheduleForm() {
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
-          {successHash && (
-            <p className="text-sm text-green-600">
-              Schedule created! Transaction: {successHash.slice(0, 12)}…
-            </p>
+          {created && (
+            <div className="space-y-3 rounded-md border border-green-600/30 bg-green-600/5 p-4 text-sm">
+              <p className="font-medium text-green-700">
+                {created.scheduleId !== null
+                  ? `Schedule #${created.scheduleId.toString()} created.`
+                  : 'Schedule created.'}
+              </p>
+              <p className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                Transaction <Identifier value={created.hash} kind="tx" />
+              </p>
+              {created.scheduleId !== null ? (
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild size="sm">
+                    <Link href={`/dashboard?id=${created.scheduleId.toString()}`}>
+                      Open schedule
+                    </Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={`/approve?id=${created.scheduleId.toString()}`}>
+                      Share with signers
+                    </Link>
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-muted-foreground">
+                  The schedule ID could not be read from the transaction result;
+                  look it up on the explorer link above.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Save the schedule ID — signers and the beneficiary will need it.
+              </p>
+            </div>
           )}
 
           <Button type="submit" disabled={submitting} className="w-full">
