@@ -18,7 +18,7 @@ import {
 } from '@/lib/freighter';
 import {
   contractErrorFromFinalizedTx,
-  sdkClient,
+  getSdkClient,
   waitForTransaction,
 } from '@/lib/soroban-client';
 
@@ -50,8 +50,8 @@ export default function DashboardPage() {
     setLoading(true);
     try {
       const [sch, vested] = await Promise.all([
-        getSchedule(parsed, sdkClient),
-        getVestedAmount(parsed, sdkClient),
+        getSchedule(parsed, getSdkClient()),
+        getVestedAmount(parsed, getSdkClient()),
       ]);
       setSchedule(sch);
       setVestedAmount(vested);
@@ -86,7 +86,14 @@ export default function DashboardPage() {
       if (!response.ok || !data.xdr) {
         throw new Error(apiErrorToMessage(data.error));
       }
-      const { hash } = await signAndSubmit(data.xdr, wallet.networkPassphrase);
+      // The returned XDR is verified in the browser against this expectation
+      // before the wallet is asked to sign it (see lib/tx-guard.ts). The
+      // schedule's own token is the only other contract its authorization tree
+      // may legitimately touch.
+      const { hash } = await signAndSubmit(data.xdr, wallet, {
+        functionName: 'withdraw',
+        extraAuthorizedContracts: [schedule.token],
+      });
       const finalized = await waitForTransaction(hash);
       if (finalized.status !== 'SUCCESS') {
         const mapped = contractErrorFromFinalizedTx(finalized);

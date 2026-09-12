@@ -23,7 +23,13 @@ import {
   signTransaction,
 } from '@stellar/freighter-api';
 
-import { sdkClient } from './soroban-client';
+import { getSdkClient } from './soroban-client';
+import {
+  APP_NETWORK_PASSPHRASE,
+  assertSafeToSign,
+  UnsafeTransactionError,
+  type TxExpectation,
+} from './tx-guard';
 
 // ---------------------------------------------------------------------------
 // Wallet detection
@@ -210,29 +216,75 @@ export async function getWalletNetwork(): Promise<WalletNetwork> {
 }
 
 /**
- * Sign an unsigned (prepared) transaction XDR with Freighter and submit it to
- * the network via the SDK client. The signed transaction never leaves the
- * browser except as a submission to Soroban RPC.
+ * Refuse to proceed unless the wallet is on the same network this deployment is
+ * configured for.
+ *
+ * Transactions are built server-side against `NEXT_PUBLIC_NETWORK_PASSPHRASE`.
+ * Signing them with whatever passphrase the wallet happens to report — which is
+ * what the write flows used to pass through — means a user whose wallet is on
+ * mainnet can be walked through a flow whose transaction was built for testnet,
+ * and vice versa. Checking first turns a confusing signature failure (or, worse,
+ * a signature over the wrong chain) into a clear, actionable message.
+ *
+ * @param wallet - the connected wallet, as reported by Freighter
+ * @throws {Error} when the wallet's network differs from the app's
+ */
+export function assertWalletOnAppNetwork(wallet: WalletNetwork): void {
+  if (!APP_NETWORK_PASSPHRASE) {
+    throw new Error(
+      'This deployment is missing NEXT_PUBLIC_NETWORK_PASSPHRASE, so the wallet ' +
+        'network cannot be verified.'
+    );
+  }
+  if (wallet.networkPassphrase !== APP_NETWORK_PASSPHRASE) {
+    throw new Error(
+      `Your wallet is on ${wallet.network}, but this app is configured for a ` +
+        'different Stellar network. Switch networks in Freighter before continuing.'
+    );
+  }
+}
+
+/**
+ * Verify a server-built transaction, sign it with Freighter, and submit it.
+ *
+ * The XDR is **not** trusted on arrival: {@link assertSafeToSign} re-parses it in
+ * the browser and confirms it is the single VaultVest call this flow asked for,
+ * sourced from the connected wallet, before the wallet ever sees it. Signing
+ * uses the app's configured passphrase rather than one travelling with the
+ * payload. The signed envelope is then checked to be the same transaction that
+ * was verified, so nothing can be substituted between approval and submission.
  *
  * Note: `sendTransaction` only enqueues the transaction; callers should poll
- * `sdkClient.getTransaction(hash)` for the final result and map any execution
- * failure via `contractErrorFromTransactionMeta`.
+ * `getSdkClient().getTransaction(hash)` for the final result and map any
+ * execution failure via `contractErrorFromTransactionMeta`.
  *
  * @param unsignedXdr - base64 XDR of the unsigned prepared transaction
- * @param networkPassphrase - passphrase to sign for (must match the wallet's
- *   network, which the caller should verify against the app's configured network)
+ * @param wallet - the connected wallet; its address must be the tx source and
+ *   its network must match the app's
+ * @param expectation - the contract function this flow requested, plus any
+ *   additional contracts (e.g. the SEP-41 token) the authorization tree may touch
  * @returns the send response with the transaction hash
- * @throws {Error} if signing fails
+ * @throws {UnsafeTransactionError} if the returned XDR is not what was requested
+ * @throws {Error} if the wallet is on the wrong network or signing fails
  * @throws {ContractCallError} if the network rejects the submission with a known
  *   VaultVest error code
  */
 export async function signAndSubmit(
   unsignedXdr: string,
-  networkPassphrase: string
+  wallet: ConnectedWallet,
+  expectation: Omit<TxExpectation, 'source'>
 ): Promise<{ hash: string; status: string }> {
+  assertWalletOnAppNetwork(wallet);
+
+  // Verify BEFORE the wallet prompt: a user cannot audit base64 XDR in a popup.
+  const verified = assertSafeToSign(unsignedXdr, {
+    ...expectation,
+    source: wallet.address,
+  });
+
   const { signedTxXdr, signerAddress, error } = await signTransaction(
     unsignedXdr,
-    { networkPassphrase }
+    { networkPassphrase: APP_NETWORK_PASSPHRASE, address: wallet.address }
   );
   throwOnFreighterError(error, 'sign');
   if (!signedTxXdr) {
@@ -241,12 +293,30 @@ export async function signAndSubmit(
   if (!signerAddress) {
     throw new Error('Freighter sign returned no signer address.');
   }
+  if (signerAddress !== wallet.address) {
+    throw new Error(
+      `Freighter signed with ${signerAddress}, not the connected account ` +
+        `${wallet.address}. Aborting.`
+    );
+  }
 
-  const parsed = TransactionBuilder.fromXDR(signedTxXdr, networkPassphrase);
+  const parsed = TransactionBuilder.fromXDR(
+    signedTxXdr,
+    APP_NETWORK_PASSPHRASE
+  );
   if (!(parsed instanceof Transaction)) {
     // We only ever sign regular transactions; fee-bump envelopes are unexpected.
     throw new Error('Freighter returned a fee-bump transaction; expected a regular transaction.');
   }
-  const response = await sdkClient.send(parsed);
+  // Signing does not alter the transaction body, so the hash must be unchanged.
+  // A mismatch means the payload was swapped during the wallet round trip.
+  if (!parsed.hash().equals(verified.hash())) {
+    throw new UnsafeTransactionError(
+      'Refusing to submit: the signed transaction differs from the one that was ' +
+        'verified. Do not retry until you know why.'
+    );
+  }
+
+  const response = await getSdkClient().send(parsed);
   return { hash: response.hash, status: response.status };
 }

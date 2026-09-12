@@ -21,10 +21,35 @@ import { getSorobanClient } from '@vaultvest/sdk';
 
 const client = getSorobanClient();
 
-const POLL_INTERVAL_MS = Number(process.env.INDEXER_POLL_INTERVAL_MS ?? 5000);
-const START_LEDGER = process.env.INDEXER_START_LEDGER
-  ? Number(process.env.INDEXER_START_LEDGER)
-  : undefined;
+/**
+ * Read a positive-integer env var, falling back when it is absent or malformed.
+ *
+ * `Number()` alone returns NaN for garbage, and `setTimeout(NaN)` fires
+ * immediately — so a typo'd interval turned the poll loop into an unthrottled
+ * hot loop against Soroban RPC. A floor keeps a deliberately tiny value from
+ * doing the same.
+ */
+function positiveIntEnv(
+  name: string,
+  fallback: number | undefined,
+  min = 1
+): number | undefined {
+  const raw = process.env[name];
+  if (raw === undefined || raw.trim() === '') return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < min) {
+    log('warn', 'ignoring invalid env var', { name, value: raw, min, fallback });
+    return fallback;
+  }
+  return parsed;
+}
+
+/** Floor on the poll interval, so a misconfiguration cannot hammer the RPC. */
+const MIN_POLL_INTERVAL_MS = 1000;
+
+const POLL_INTERVAL_MS =
+  positiveIntEnv('INDEXER_POLL_INTERVAL_MS', 5000, MIN_POLL_INTERVAL_MS) ?? 5000;
+const START_LEDGER = positiveIntEnv('INDEXER_START_LEDGER', undefined);
 const PAGE_LIMIT = 100;
 const INITIAL_BACKOFF_MS = 1000;
 const MAX_BACKOFF_MS = 60_000;

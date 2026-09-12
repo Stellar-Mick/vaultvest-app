@@ -26,6 +26,28 @@ function isValidAddress(address: string): boolean {
   return StrKey.isValidEd25519PublicKey(address.trim());
 }
 
+/**
+ * Full strkey check for the token contract. A `startsWith('C')` test accepted
+ * any string beginning with C, which then travelled all the way to ScVal
+ * encoding before failing.
+ */
+function isValidContractAddress(address: string): boolean {
+  return StrKey.isValidContract(address.trim());
+}
+
+/**
+ * Whether a string is a positive decimal integer.
+ *
+ * Amounts are i128 raw token units and are sent to the server as strings
+ * precisely because they can exceed `Number.MAX_SAFE_INTEGER`. Validating them
+ * with `Number()` silently accepted values that lose precision (and forms like
+ * `1e30` and `1.5`, which the contract cannot take), so the digits are checked
+ * directly instead.
+ */
+function isPositiveIntegerString(value: string): boolean {
+  return /^(0|[1-9][0-9]{0,39})$/.test(value) && BigInt(value) > 0n;
+}
+
 /** Convert a datetime-local input value to unix seconds, or NaN when invalid. */
 function toUnixSeconds(datetimeLocal: string): number {
   const millis = Date.parse(datetimeLocal);
@@ -66,14 +88,20 @@ export function CreateScheduleForm() {
   const validate = (): string | null => {
     if (!wallet) return 'Connect your wallet first.';
     if (!isValidAddress(beneficiary)) return 'Beneficiary must be a valid G... address.';
-    if (!token || !token.startsWith('C')) return 'Token must be a valid C... contract address.';
-    const amount = Number(totalAmount);
-    if (!Number.isFinite(amount) || amount <= 0) return 'Total amount must be a positive number.';
+    if (!isValidContractAddress(token))
+      return 'Token must be a valid C... contract address.';
+    if (!isPositiveIntegerString(totalAmount.trim()))
+      return 'Total amount must be a positive whole number of raw token units.';
     const start = toUnixSeconds(startTs);
     const end = toUnixSeconds(endTs);
     const cliff = toUnixSeconds(cliffTs);
     if (!Number.isFinite(start) || !Number.isFinite(end) || !Number.isFinite(cliff)) {
       return 'Start, end, and cliff times must be valid dates.';
+    }
+    // The contract's timestamps are u64 unix seconds; pre-1970 dates cannot be
+    // represented and would be rejected at the API boundary.
+    if (start < 0 || end < 0 || cliff < 0) {
+      return 'Start, end, and cliff times must be on or after 1 January 1970.';
     }
     if (end <= start) return 'End time must be after start time.';
     if (cliff < start) return 'Cliff time must be on or after start time.';
@@ -129,7 +157,14 @@ export function CreateScheduleForm() {
         throw new Error(apiErrorToMessage(data.error));
       }
 
-      const { hash } = await signAndSubmit(data.xdr, wallet.networkPassphrase);
+      // The returned XDR is verified in the browser against this expectation
+      // before the wallet is asked to sign it (see lib/tx-guard.ts). Escrowing
+      // pulls tokens from the funder, so the token contract entered above is the
+      // one additional contract its authorization tree may touch.
+      const { hash } = await signAndSubmit(data.xdr, wallet, {
+        functionName: 'create_schedule',
+        extraAuthorizedContracts: [token.trim()],
+      });
       const finalized = await waitForTransaction(hash);
       if (finalized.status !== 'SUCCESS') {
         const mapped = contractErrorFromFinalizedTx(finalized);
@@ -191,7 +226,7 @@ export function CreateScheduleForm() {
               id="totalAmount"
               type="number"
               min="1"
-              step="any"
+              step="1"
               placeholder="e.g. 1000000000"
               value={totalAmount}
               onChange={(e) => setTotalAmount(e.target.value)}

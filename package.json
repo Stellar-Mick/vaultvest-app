@@ -8,6 +8,11 @@
     "apps/*",
     "indexer"
   ],
+  "comment:overrides": "Pins for transitive dependencies whose parents (next, autoprefixer, tailwindcss, eslint) still request advisory-affected versions. Both pins are semver-compatible with what those parents ask for, so they are drop-in. Both advisories are build-time only and are not reachable from the deployed app -- see SECURITY.md 'Known Limitations'. Drop these once the parents ship patched versions of their own.",
+  "overrides": {
+    "postcss": "^8.5.28",
+    "js-yaml": "^4.3.2"
+  },
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

@@ -55,22 +55,24 @@ function buildConfig(): SdkConfig {
 }
 
 /**
- * Lazily-initialized shared SDK client. Throws with a descriptive message when
- * required `NEXT_PUBLIC_*` env vars are missing — but only when a write flow
- * actually calls it, not at import time.
+ * Configured SDK client, constructed on first use.
+ *
+ * Call this instead of the SDK's own `getSorobanClient()` — the SDK reads
+ * `process.env` directly, which Next.js does NOT replace inside workspace
+ * packages (see {@link buildConfig}).
+ *
+ * This must stay a function. An eagerly-evaluated `export const` ran
+ * {@link buildConfig} at module load, which threw during prerender whenever the
+ * `NEXT_PUBLIC_*` vars were absent — defeating the lazy initialization this
+ * module documents and breaking builds in environments without `.env.local`.
+ *
+ * @returns the shared client instance
+ * @throws {Error} when required `NEXT_PUBLIC_*` env vars are missing
  */
-function getClient(): SorobanClient {
+export function getSdkClient(): SorobanClient {
   client ??= new SorobanClient(buildConfig());
   return client;
 }
-
-/**
- * Configured SDK client instance, ready for use by pages and components.
- * Import this instead of calling `getSorobanClient()` from the SDK — the SDK's
- * default client reads `process.env` which is NOT replaced by Next.js in
- * workspace packages.
- */
-export const sdkClient = getClient();
 
 /** Parsed response of `rpc.Server.getTransaction`. */
 type GetTransactionResponse = Awaited<
@@ -93,7 +95,7 @@ export async function waitForTransaction(
 ): Promise<GetTransactionResponse> {
   for (let i = 0; i < attempts; i++) {
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
-    const response = await getClient().getTransaction(hash);
+    const response = await getSdkClient().getTransaction(hash);
     // In @stellar/stellar-sdk 16.2.0 the parsed GetTransactionStatus is
     // SUCCESS | NOT_FOUND | FAILED (no PENDING): NOT_FOUND means the tx is not
     // visible yet, so keep waiting; SUCCESS/FAILED are final.
