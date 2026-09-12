@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { ShieldAlert } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { WalletConnectButton } from '@/components/WalletConnectButton';
 import { useWallet } from '@/components/WalletProvider';
 import { IS_MAINNET, NETWORK_LABEL } from '@/lib/explorer';
@@ -63,6 +64,7 @@ export function SiteHeader() {
               {NETWORK_LABEL}
             </Badge>
           )}
+          <ThemeToggle />
           <WalletConnectButton hideError size="sm" />
         </div>
       </div>

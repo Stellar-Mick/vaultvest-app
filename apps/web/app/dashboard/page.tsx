@@ -6,6 +6,7 @@ import { Loader2, RefreshCw, Search } from 'lucide-react';
 import { getSchedule, getVestedAmount, type Schedule } from '@vaultvest/sdk';
 
 import { Identifier } from '@/components/Identifier';
+import { RecentSchedules } from '@/components/RecentSchedules';
 import { ScheduleCard } from '@/components/ScheduleCard';
 import { useWallet } from '@/components/WalletProvider';
 import { Button } from '@/components/ui/button';
@@ -13,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getErrorMessage } from '@/lib/errors';
+import { rememberSchedule, rolesFor } from '@/lib/recents';
 import { getSdkClient } from '@/lib/soroban-client';
 import { submitWrite } from '@/lib/write-flow';
 
@@ -72,6 +74,13 @@ function DashboardInner() {
       setLoading(false);
     }
   }, []);
+
+  // Remember every schedule successfully loaded, with the wallet's role on it.
+  useEffect(() => {
+    if (schedule && scheduleId.trim()) {
+      rememberSchedule(scheduleId.trim(), rolesFor(schedule, wallet?.address));
+    }
+  }, [schedule, scheduleId, wallet?.address]);
 
   // Deep link: /dashboard?id=42 loads immediately.
   useEffect(() => {
@@ -185,6 +194,8 @@ function DashboardInner() {
             )}
           </div>
         )}
+
+        <RecentSchedules basePath="/dashboard" />
       </div>
     </main>
   );

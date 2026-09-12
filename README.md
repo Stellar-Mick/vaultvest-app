@@ -13,9 +13,9 @@ This monorepo is the frontend layer for the deployed [vaultvest-contract](https:
 ```
 vaultvest-app/
 ├── packages/sdk/     # Typed Soroban RPC client + contract wrappers
-├── apps/web/         # Next.js 14 (App Router) frontend
+├── apps/web/         # Next.js 15 (App Router) frontend
 ├── indexer/          # Lightweight event polling service
-└── .github/workflows # CI: lint, typecheck, build
+└── .github/workflows # CI: lint, typecheck, test, build
 ```
 
 ## Quick Start
@@ -26,6 +26,12 @@ cd vaultvest-app
 npm install
 cp apps/web/.env.example apps/web/.env.local
 npm run dev -w @vaultvest/web
+```
+
+Run the test suite (covers the signing guard, request validation, rate limiting, and error mapping):
+
+```bash
+npm test
 ```
 
 Requires [Freighter](https://www.freighter.app/) browser extension on testnet.

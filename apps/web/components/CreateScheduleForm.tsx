@@ -14,6 +14,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getErrorMessage } from '@/lib/errors';
+import { rememberSchedule } from '@/lib/recents';
+import { useToken } from '@/lib/use-token';
 import { submitWrite } from '@/lib/write-flow';
 
 /** Default SEP-41 token for demo schedules (from env, inlined at build time). */
@@ -72,6 +74,11 @@ export function CreateScheduleForm() {
   const { wallet } = useWallet();
   const [beneficiary, setBeneficiary] = useState('');
   const [token, setToken] = useState(DEFAULT_TOKEN);
+  // Resolve decimals/symbol for whatever token is typed, once it is a valid
+  // address, so the amount field can show what the raw units actually mean.
+  const tokenDisplay = useToken(
+    StrKey.isValidContract(token.trim()) ? token.trim() : null
+  );
   const [totalAmount, setTotalAmount] = useState('');
   const [startTs, setStartTs] = useState('');
   const [endTs, setEndTs] = useState('');
@@ -162,6 +169,7 @@ export function CreateScheduleForm() {
         // Unexpected return shape; fall back to showing only the tx hash.
       }
       setCreated({ hash, scheduleId });
+      if (scheduleId !== null) rememberSchedule(scheduleId.toString(), ['funder']);
     } catch (err) {
       setError(getErrorMessage(err));
     } finally {
@@ -229,8 +237,18 @@ export function CreateScheduleForm() {
               onChange={(e) => setTotalAmount(e.target.value)}
             />
             <p className="text-xs text-muted-foreground">
-              Amounts are escrowed in raw units (no decimal adjustment is applied
-              client-side).
+              {tokenDisplay.metadata && isPositiveIntegerString(totalAmount.trim()) ? (
+                <>
+                  = <span className="font-medium text-foreground">{tokenDisplay.format(BigInt(totalAmount.trim()))}</span>
+                  {' '}({tokenDisplay.metadata.decimals} decimals)
+                </>
+              ) : tokenDisplay.metadata ? (
+                <>
+                  {tokenDisplay.metadata.symbol} has {tokenDisplay.metadata.decimals} decimals — enter the amount in raw units.
+                </>
+              ) : (
+                <>Amounts are escrowed in raw units (no decimal adjustment is applied client-side).</>
+              )}
             </p>
           </div>
 

@@ -23,6 +23,7 @@ This is testnet software. Do not use it with real assets.
 | Rate limiting on `/api/tx`, which fans out into Soroban RPC | `apps/web/lib/rate-limit.ts` |
 | Redacted API errors — contract reverts return a numeric code, never raw RPC diagnostics | `apps/web/app/api/tx/route.ts` |
 | CSP, `frame-ancestors 'none'`, HSTS, nosniff, referrer and permissions policy | `apps/web/next.config.js` |
+| Unit tests for the guard (including smuggled auth sub-invocations), request validation, rate limiting, and error redaction — run in CI | `apps/web/__tests__/` |
 
 The `/api/tx` rate limiter keeps its counters in process memory. On a serverless
 deployment each instance enforces its own window, so treat it as a speed bump

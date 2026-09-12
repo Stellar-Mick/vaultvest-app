@@ -5,10 +5,12 @@ import { Ban, Loader2, Lock, Unlock } from 'lucide-react';
 import type { Schedule } from '@vaultvest/sdk';
 
 import { Identifier } from '@/components/Identifier';
+import { VestingTimeline } from '@/components/VestingTimeline';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { useToken } from '@/lib/use-token';
 
 interface ScheduleCardProps {
   /** Numeric schedule id (displayed in the card header). */
@@ -59,6 +61,7 @@ export function ScheduleCard({
   onRevoke,
 }: ScheduleCardProps) {
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const { format, metadata } = useToken(schedule.token);
 
   const isBeneficiary = walletAddress === schedule.beneficiary;
   const isFunder = walletAddress === schedule.funder;
@@ -85,7 +88,7 @@ export function ScheduleCard({
           </Badge>
         </div>
         <CardDescription>
-          {schedule.totalAmount.toString()} raw units — {schedule.signers.length}{' '}
+          {format(schedule.totalAmount)} — {schedule.signers.length}{' '}
           signer{schedule.signers.length === 1 ? '' : 's'}, threshold{' '}
           {schedule.threshold}
         </CardDescription>
@@ -94,12 +97,19 @@ export function ScheduleCard({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span>
-              Vested {vestedAmount?.toString() ?? '…'} of {schedule.totalAmount.toString()}
+              Vested {vestedAmount === null ? '…' : format(vestedAmount)} of {format(schedule.totalAmount)}
             </span>
-            <span>Withdrawn {schedule.withdrawnAmount.toString()}</span>
+            <span>Withdrawn {format(schedule.withdrawnAmount)}</span>
           </div>
           <Progress value={percent(vestedAmount, schedule.totalAmount)} />
         </div>
+
+        <VestingTimeline
+          startTs={schedule.startTs}
+          cliffTs={schedule.cliffTs}
+          endTs={schedule.endTs}
+          revoked={schedule.revoked}
+        />
 
         <dl className="grid grid-cols-1 gap-x-4 gap-y-3 text-sm sm:grid-cols-2">
           <div>
@@ -112,7 +122,12 @@ export function ScheduleCard({
           </div>
           <div className="sm:col-span-2">
             <dt className="text-muted-foreground">Token</dt>
-            <dd><Identifier value={schedule.token} kind="address" /></dd>
+            <dd className="flex flex-wrap items-center gap-2">
+              {metadata && (
+                <span>{metadata.name} ({metadata.symbol})</span>
+              )}
+              <Identifier value={schedule.token} kind="address" />
+            </dd>
           </div>
           <div>
             <dt className="text-muted-foreground">Starts</dt>

@@ -8,6 +8,7 @@ import { getApprovalCount, getSchedule, type Schedule } from '@vaultvest/sdk';
 
 import { ApprovalProgress } from '@/components/ApprovalProgress';
 import { Identifier } from '@/components/Identifier';
+import { RecentSchedules } from '@/components/RecentSchedules';
 import { useWallet } from '@/components/WalletProvider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,7 +16,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getErrorMessage } from '@/lib/errors';
+import { rememberSchedule, rolesFor } from '@/lib/recents';
 import { getSdkClient } from '@/lib/soroban-client';
+import { useToken } from '@/lib/use-token';
 import { submitWrite } from '@/lib/write-flow';
 
 /** Format a unix-seconds bigint as a locale date string for display. */
@@ -56,6 +59,7 @@ function ApproveInner() {
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const { format } = useToken(schedule?.token ?? null);
 
   const load = useCallback(async (id: string) => {
     setError(null);
@@ -83,6 +87,12 @@ function ApproveInner() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (schedule && scheduleId.trim()) {
+      rememberSchedule(scheduleId.trim(), rolesFor(schedule, wallet?.address));
+    }
+  }, [schedule, scheduleId, wallet?.address]);
 
   useEffect(() => {
     const id = searchParams.get('id');
@@ -181,11 +191,11 @@ function ApproveInner() {
               <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
                 <div>
                   <dt className="text-muted-foreground">Total</dt>
-                  <dd className="font-medium">{schedule.totalAmount.toString()}</dd>
+                  <dd className="font-medium">{format(schedule.totalAmount)}</dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Withdrawn</dt>
-                  <dd className="font-medium">{schedule.withdrawnAmount.toString()}</dd>
+                  <dd className="font-medium">{format(schedule.withdrawnAmount)}</dd>
                 </div>
                 <div>
                   <dt className="text-muted-foreground">Starts</dt>
@@ -259,6 +269,8 @@ function ApproveInner() {
             </CardContent>
           </Card>
         )}
+
+        <RecentSchedules basePath="/approve" />
       </div>
     </main>
   );

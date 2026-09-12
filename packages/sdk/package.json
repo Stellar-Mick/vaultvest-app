@@ -27,6 +27,11 @@
       "import": "./dist/xdr.js",
       "default": "./dist/xdr.js"
     },
+    "./token": {
+      "types": "./dist/token.d.ts",
+      "import": "./dist/token.js",
+      "default": "./dist/token.js"
+    },
     "./types": {
       "types": "./dist/types.d.ts",
       "import": "./dist/types.js",
