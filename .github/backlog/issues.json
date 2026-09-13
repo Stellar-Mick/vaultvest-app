@@ -1,0 +1,452 @@
+[
+  {
+    "title": "CSP: nonce-based script-src via middleware, drop 'unsafe-inline'",
+    "labels": ["security", "web"],
+    "body": "## Context\n`next.config.js` ships `script-src 'self' 'unsafe-inline'` because the App Router emits inline bootstrap scripts without a nonce. That weakens the CSP substantially for a signing dApp.\n\n## Proposal\nAdd `middleware.ts` that generates a per-request nonce, sets the CSP header with `'nonce-…' 'strict-dynamic'`, and passes it via the `x-nonce` header so Next applies it to its inline scripts. Move the theme boot script to a nonce'd `<Script>`.\n\n## Acceptance\n- [ ] No `'unsafe-inline'` in `script-src` in production\n- [ ] Theme boot script still runs before first paint\n- [ ] Freighter injection still works (test on the deployed app)"
+  },
+  {
+    "title": "Rate limiting backed by a shared store (Vercel KV / Upstash)",
+    "labels": ["security", "api"],
+    "body": "## Context\n`lib/rate-limit.ts` keeps counters in process memory; on serverless each instance enforces its own window (documented in SECURITY.md).\n\n## Proposal\nSwap the store for Vercel KV (or Upstash Redis) behind the same `rateLimit(key, limit, windowMs)` interface, keeping the in-memory implementation as the local/dev fallback.\n\n## Acceptance\n- [ ] Cross-instance enforcement verified with two concurrent invocations\n- [ ] Same tests pass against both backends"
+  },
+  {
+    "title": "Per-address rate limit on /api/tx in addition to per-IP",
+    "labels": ["security", "api", "good first issue"],
+    "body": "A single IP can front many users (NAT, corporate egress) and one user can rotate IPs. Add a second bucket keyed on the `funder` / `signer` / `caller` address in the request body, with a lower limit."
+  },
+  {
+    "title": "tx-guard: verify the invocation arguments, not only contract and function",
+    "labels": ["security", "web"],
+    "body": "## Context\n`assertSafeToSign` checks source, op count, contract, function, and the auth tree. It does not check that the *arguments* match what the flow requested — e.g. that the `schedule_id` in the XDR is the one the user typed, or that the `create_schedule` beneficiary is the one they entered.\n\n## Proposal\nExtend `TxExpectation` with an optional `args` matcher per function; decode `invokeContract.args()` with `scValToNative` and compare. Add tests for a swapped schedule id and a swapped beneficiary."
+  },
+  {
+    "title": "tx-guard: bound the fee and require time bounds",
+    "labels": ["security", "web", "good first issue"],
+    "body": "Reject server-built transactions whose fee exceeds a sane ceiling (e.g. 10 XLM) or that lack time bounds. Both are cheap checks on the parsed `Transaction` and close off a class of \"drain via fee\" or \"sign now, submit much later\" tricks."
+  },
+  {
+    "title": "Origin / Sec-Fetch-Site check on /api/tx",
+    "labels": ["security", "api", "good first issue"],
+    "body": "The route already requires `application/json`. Add a check that `Sec-Fetch-Site` is `same-origin` (or `Origin` matches the deployment) so cross-site callers cannot use the app's RPC quota even with a preflight."
+  },
+  {
+    "title": "Integration test for security headers",
+    "labels": ["testing", "security"],
+    "body": "Start `next start` in CI and assert the CSP, `X-Frame-Options`, HSTS, and `Cache-Control: no-store` on `/api/tx` are present with the expected values. Prevents a config refactor from silently dropping them."
+  },
+  {
+    "title": "Design: build transactions client-side and remove /api/tx entirely",
+    "labels": ["security", "architecture"],
+    "body": "## Context\nThe browser already verifies server-built XDR (tx-guard). The SDK's builders (`buildWithdrawTx` etc.) only need Soroban RPC, which the browser can reach directly. The server adds latency, a rate-limiting problem, and a trust boundary that tx-guard exists to defend.\n\n## Question\nIs there any reason to keep the server in the path? If not, move building into the client, keep tx-guard as defence in depth, and delete the route. Discuss trade-offs (RPC keys, CORS, read-only account funding)."
+  },
+  {
+    "title": "Mainnet confirmation gate",
+    "labels": ["security", "ux"],
+    "body": "When `IS_MAINNET` is true, show an explicit confirmation step before any write (\"You are about to sign a transaction on the public network with real assets\"). Also surface it in the header badge styling."
+  },
+  {
+    "title": "Dependabot (or Renovate) for npm and GitHub Actions",
+    "labels": ["ci", "security", "good first issue"],
+    "body": "Weekly grouped updates for `npm` across the workspaces and for `github-actions`. Auto-merge patch bumps once CI is green."
+  },
+  {
+    "title": "Migrate from `next lint` to ESLint 9 flat config",
+    "labels": ["tech-debt", "ci"],
+    "body": "`next lint` is deprecated and removed in Next 16. Run `npx @next/codemod@canary next-lint-to-eslint-cli`, adopt `eslint.config.mjs`, and update the `lint` script. Unblocks the Next 16 upgrade and the remaining `postcss` audit residual."
+  },
+  {
+    "title": "Upgrade to Next 16",
+    "labels": ["dependencies", "web"],
+    "body": "Depends on the ESLint migration. Clears the last `npm audit` finding (postcss pinned by next@15). Review the Next 16 breaking changes list, run the full suite and a production build, and check the CSP headers still apply."
+  },
+  {
+    "title": "Pin GitHub Actions to commit SHAs",
+    "labels": ["ci", "security", "good first issue"],
+    "body": "`actions/checkout@v4` and `actions/setup-node@v4` are mutable tags. Pin to full SHAs with version comments."
+  },
+  {
+    "title": "Fail CI on high/critical npm audit findings",
+    "labels": ["ci", "security", "good first issue"],
+    "body": "Add `npm audit --audit-level=high` as a CI step (with an allow-list file for documented residuals such as the current postcss one)."
+  },
+  {
+    "title": "Coverage reporting with a threshold",
+    "labels": ["ci", "testing"],
+    "body": "Enable `vitest --coverage` (v8), upload the report as an artifact, and fail below a threshold. `lib/tx-guard.ts`, `lib/tx-request.ts`, and `lib/rate-limit.ts` should be at 100%."
+  },
+  {
+    "title": "Component tests with Testing Library",
+    "labels": ["testing", "web"],
+    "body": "Add `@testing-library/react` + jsdom environment for `ScheduleCard`, `ApprovalProgress`, `VestingTimeline`, `Identifier`, and `RecentSchedules`. Cover role-based button visibility, the revoke confirm step, and the theme toggle."
+  },
+  {
+    "title": "End-to-end tests with Playwright and a Freighter shim",
+    "labels": ["testing", "web"],
+    "body": "Inject a `window.freighter` shim that answers `getAddress`/`getNetwork`/`signTransaction` deterministically, run against a mocked `/api/tx`, and script create → approve → withdraw → revoke through the real UI."
+  },
+  {
+    "title": "Contract integration tests against a local quickstart node",
+    "labels": ["testing", "ci"],
+    "body": "Start `stellar/quickstart` in CI, deploy the contract wasm, point the SDK at it, and exercise the SDK builders and reads end to end (no browser). Catches ABI drift between the two repos."
+  },
+  {
+    "title": "Use the contract's version() for capability detection",
+    "labels": ["web", "sdk"],
+    "body": "Depends on `vaultvest-contract` adding `version()`. Replace the catch-based detection in `lib/discover.ts` and the approve/dashboard pages with a single version read, and show a precise \"contract vX required\" message."
+  },
+  {
+    "title": "Discovery: scan beyond 200 with a \"load older\" control and a cached result per wallet",
+    "labels": ["web", "enhancement"],
+    "body": "`discoverSchedules` caps at 200 newest. Add pagination (\"Scan older\") and cache `{wallet → matches, scannedUpTo, at}` in localStorage with a TTL so repeat visits are instant."
+  },
+  {
+    "title": "Discovery: use get_schedule_range when the contract supports it",
+    "labels": ["web", "performance"],
+    "body": "Depends on the contract batch-read issue. Reduce 200 simulations to ~4 by reading ranges; fall back to per-id reads on older contracts."
+  },
+  {
+    "title": "Indexer: durable cursor and restart resume",
+    "labels": ["indexer"],
+    "body": "`indexer/src/poll.ts` keeps the cursor in memory and skips events emitted while it was down. Persist the cursor (SQLite via better-sqlite3, or a file) and resume from it on start."
+  },
+  {
+    "title": "Indexer: decode events into typed records",
+    "labels": ["indexer"],
+    "body": "Map each topic (`schedule_created`, `release_approved`, `revoke_approved`, `withdrawn`, `schedule_revoked`, `ttl_extended`) to a typed struct with the schedule id, actors, and amounts, instead of logging raw `scValToNative` output."
+  },
+  {
+    "title": "Indexer: HTTP API — schedules by address and activity feed",
+    "labels": ["indexer", "api"],
+    "body": "Expose `GET /schedules?address=G…` (from decoded `schedule_created` events) and `GET /schedules/:id/activity`. This gives the app instant discovery without scanning the contract."
+  },
+  {
+    "title": "Indexer: Dockerfile and compose file",
+    "labels": ["indexer", "tooling", "good first issue"],
+    "body": "Container image for the indexer with env-driven config and a `docker-compose.yml` that runs it alongside a local quickstart node."
+  },
+  {
+    "title": "Dashboard activity feed from the indexer",
+    "labels": ["web", "indexer", "enhancement"],
+    "body": "Depends on the indexer API. Show a per-schedule timeline (created, approvals, withdrawals, revoke) with tx links, replacing the need to read stellar.expert."
+  },
+  {
+    "title": "Transaction history per schedule",
+    "labels": ["web", "enhancement"],
+    "body": "Until the indexer API exists, fetch recent contract events via Soroban RPC `getEvents` filtered by schedule id and render them on the dashboard. Note the RPC retention window in the UI."
+  },
+  {
+    "title": "Multi-wallet support via stellar-wallets-kit",
+    "labels": ["web", "enhancement"],
+    "body": "Only Freighter is supported. Adopt `@creit.tech/stellar-wallets-kit` for xBull, Albedo, Lobstr, Hana, and Ledger. Keep `lib/freighter.ts`'s timeout/network/verification behaviour behind a common adapter."
+  },
+  {
+    "title": "Wallet network switch prompt",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "When `wrongNetwork` is true, offer a one-click \"Switch to Testnet\" where the wallet API supports it, instead of only telling the user to do it manually."
+  },
+  {
+    "title": "Pre-flight checks on create: balance, trustline, token conformance",
+    "labels": ["web", "ux"],
+    "body": "Before building the create transaction: read the funder's token balance (≥ amount), check a trustline exists for classic assets, and verify the token responds to `decimals`/`symbol`. Surface each failure inline instead of via a simulation error."
+  },
+  {
+    "title": "Show the contract's escrow balance for a schedule",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Read the token balance held by the contract and display it next to \"Vested / Withdrawn\" as proof of escrow. Flag a mismatch with `total − withdrawn`."
+  },
+  {
+    "title": "Timezone handling for start/cliff/end inputs",
+    "labels": ["web", "ux"],
+    "body": "`datetime-local` is interpreted in the browser's zone with no indication. Show the resolved UTC timestamp next to each field, offer a UTC toggle, and warn when start is in the past."
+  },
+  {
+    "title": "Enter amounts in token units, not raw units",
+    "labels": ["web", "ux"],
+    "body": "The create form takes raw integer units and previews the human amount. Flip it: accept `1,250.5` once token metadata is known, convert with the token's decimals using bigint arithmetic, and show the raw value as the preview."
+  },
+  {
+    "title": "Form validation with zod and inline field errors",
+    "labels": ["web", "ux"],
+    "body": "Replace the imperative `validate()` in `CreateScheduleForm` with a zod schema shared with the API's expectations; show errors under each field rather than a single line."
+  },
+  {
+    "title": "Schedule templates (e.g. 4-year / 1-year cliff)",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Preset buttons that fill start/cliff/end relative to now for common grant shapes. Purely client-side."
+  },
+  {
+    "title": "Share link and QR code for a schedule",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "On the create success panel and the schedule card, a \"Share\" button that copies `/dashboard?id=N` and shows a QR code so signers can open it on mobile."
+  },
+  {
+    "title": "Export discovered schedules to CSV",
+    "labels": ["web", "enhancement", "good first issue"],
+    "body": "From the My schedules panel, export id, roles, amounts, dates, and status. Handle bigint formatting explicitly."
+  },
+  {
+    "title": "Batch approve for signers",
+    "labels": ["web", "enhancement"],
+    "body": "A signer on many schedules should be able to select several from discovery and approve them in sequence with one wallet session (one tx each — Soroban auth is per-invocation). Show per-item progress and failures."
+  },
+  {
+    "title": "Signer notifications (webhook/email) when an approval is requested",
+    "labels": ["indexer", "enhancement", "design"],
+    "body": "Design: the indexer watches `schedule_created` and `release_approved` and posts to a configurable webhook per signer address. Privacy and opt-in model to be decided."
+  },
+  {
+    "title": "Loading skeletons and real Suspense fallbacks",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "The `Suspense` boundaries on Dashboard and Approve use `fallback={null}`. Add skeleton cards for the find panel and schedule card."
+  },
+  {
+    "title": "Error boundary and custom 404",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Add `app/error.tsx` (friendly message + retry, no stack traces) and `app/not-found.tsx` matching the app's design."
+  },
+  {
+    "title": "Accessibility audit and fixes",
+    "labels": ["web", "accessibility"],
+    "body": "Run axe on each page. Known gaps: `aria-live` region for success/error messages, focus management after wallet connect and after a write completes, contrast on muted text in dark mode, keyboard operation of the approval-kind tabs."
+  },
+  {
+    "title": "Mobile navigation drawer",
+    "labels": ["web", "ux"],
+    "body": "The header shows a second row of links under `sm`. Replace with a drawer/sheet so the wallet control and network badge stay visible without wrapping."
+  },
+  {
+    "title": "Internationalisation scaffolding",
+    "labels": ["web", "enhancement"],
+    "body": "Extract UI strings (including error copy in `lib/errors.ts`) into message catalogs; add locale detection. No translations required in the first pass — just the plumbing."
+  },
+  {
+    "title": "SEO and social metadata",
+    "labels": ["web", "good first issue"],
+    "body": "Per-route `metadata`, an OpenGraph image, `robots.txt`, and a sitemap. Schedule pages should not be indexed."
+  },
+  {
+    "title": "PWA manifest and icons",
+    "labels": ["web", "good first issue"],
+    "body": "Add a web manifest, icon set, and theme colours so the app installs cleanly on mobile. No service worker needed yet."
+  },
+  {
+    "title": "Theme: follow system changes live and test no-flash",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "When no explicit preference is stored, react to `prefers-color-scheme` changes without reload. Add a Playwright check that the first paint has the correct `dark` class."
+  },
+  {
+    "title": "Component documentation (Storybook or Ladle)",
+    "labels": ["web", "docs"],
+    "body": "Stories for the schedule card in each role/state (active, revoked, funder view, beneficiary view, pending revoke approvals), the timeline at each phase, and the identifier component."
+  },
+  {
+    "title": "Bundle size budget in CI",
+    "labels": ["ci", "performance"],
+    "body": "Record first-load JS per route (currently ~215 kB on the schedule pages) and fail CI on regressions above a threshold. Investigate whether `@stellar/stellar-sdk` can be tree-shaken further on the client."
+  },
+  {
+    "title": "RPC resilience: retry with backoff and a fallback endpoint",
+    "labels": ["web", "sdk"],
+    "body": "Reads fail hard on a single RPC hiccup. Add bounded retries with jitter to the SDK client and support `NEXT_PUBLIC_SOROBAN_RPC_FALLBACK_URL`."
+  },
+  {
+    "title": "Cache reads with SWR / TanStack Query",
+    "labels": ["web", "performance"],
+    "body": "Schedule, vested amount, approval counts, and token metadata are refetched imperatively. Move to a query layer with stale-while-revalidate, refetch on focus, and shared cache across pages."
+  },
+  {
+    "title": "Live vested amount refresh on the dashboard",
+    "labels": ["web", "ux"],
+    "body": "The timeline counts down live but the vested figure is static until Refresh. Poll `vested_amount` on an interval while the page is visible (respecting rate limits), and animate the change."
+  },
+  {
+    "title": "Error reporting (Sentry or similar) with PII scrubbing",
+    "labels": ["web", "observability"],
+    "body": "Capture client and API route errors. Scrub addresses to a shortened form and never send XDR payloads. Make it opt-in via env so forks are not surprised."
+  },
+  {
+    "title": "Health endpoint",
+    "labels": ["api", "good first issue"],
+    "body": "`GET /api/health` returning RPC reachability and the configured network/contract id (no secrets). Useful for uptime checks and for verifying a deployment's env after switching contract addresses."
+  },
+  {
+    "title": "Validate NEXT_PUBLIC_* env at build time",
+    "labels": ["web", "tooling", "good first issue"],
+    "body": "A `lib/env.ts` using zod (or manual checks) that fails `next build` with a clear message when a required variable is missing or malformed (e.g. contract id not a valid `C…` strkey, RPC URL not https)."
+  },
+  {
+    "title": "README: architecture diagram and screenshots",
+    "labels": ["docs", "good first issue"],
+    "body": "A diagram showing browser ↔ /api/tx ↔ Soroban RPC ↔ contract, where signing happens, and where tx-guard sits. Screenshots of the three flows."
+  },
+  {
+    "title": "Add a LICENSE file",
+    "labels": ["repo-hygiene", "good first issue"],
+    "body": "The contract repo is Apache-2.0; this repo has no LICENSE file. Add one (Apache-2.0 to match, unless decided otherwise) and reference it in `package.json` `license` fields."
+  },
+  {
+    "title": "CODEOWNERS, issue templates, and PR template",
+    "labels": ["repo-hygiene", "good first issue"],
+    "body": "Add `.github/CODEOWNERS`, bug/feature/security issue templates, and a PR template with a checklist (tests, `npm run build`, SECURITY.md if relevant)."
+  },
+  {
+    "title": "CHANGELOG and release tagging",
+    "labels": ["docs", "release", "good first issue"],
+    "body": "Keep a Changelog format; tag releases; note which contract version each app release requires."
+  },
+  {
+    "title": "Handle multiple accounts in Freighter",
+    "labels": ["web", "ux"],
+    "body": "If the user switches accounts in Freighter while connected, the app keeps the old address until reload. Poll `getAddress` (or use the wallet's change event where available) and update the session."
+  },
+  {
+    "title": "Remember explicit disconnect across reloads",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Clicking disconnect only clears local state; on reload the provider silently restores the authorised account. Store a \"user disconnected\" flag and skip auto-restore until they connect again."
+  },
+  {
+    "title": "Approve page: hide the Revoke mode when the wallet is not a signer, and show my roles",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Small polish: the Release/Revoke switch is shown to everyone. Only signers can act, so show it only to them, and add a compact role summary (\"You: signer, beneficiary\")."
+  },
+  {
+    "title": "Dashboard: show pending release approvals with approver names",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "The dashboard shows only the revoke count. Show the release approval progress and approver list too, so the beneficiary can see who still needs to sign."
+  },
+  {
+    "title": "Create form: warn on unusual role overlaps",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Non-blocking warnings when beneficiary == funder, when the beneficiary is in the signer set, or when threshold == signers.length (any single signer can block)."
+  },
+  {
+    "title": "Fuzz tx-guard with random operations and auth trees",
+    "labels": ["testing", "security"],
+    "body": "Generate random transactions (fast-check) with mixed op types, sources, contracts, and auth sub-invocations; assert the guard accepts exactly the well-formed single-call shape and nothing else."
+  },
+  {
+    "title": "Cover the rate limiter's eviction path",
+    "labels": ["testing", "good first issue"],
+    "body": "`rateLimit` evicts expired keys at `MAX_TRACKED_KEYS` and clears wholesale if still full. Neither branch is tested. Add tests that push past the cap."
+  },
+  {
+    "title": "CI matrix: Node 20 and 22",
+    "labels": ["ci", "good first issue"],
+    "body": "`engines.node >= 20`. Run lint/typecheck/test/build on both LTS lines."
+  },
+  {
+    "title": "Workspace build orchestration (turborepo) and drop the postinstall build",
+    "labels": ["tech-debt", "tooling"],
+    "body": "The root `postinstall` builds the SDK on every install, including in CI and on Vercel. Move to an explicit build graph (turbo) with caching so the SDK builds only when it changed."
+  },
+  {
+    "title": "SDK: publish @vaultvest/sdk (or document why it stays private)",
+    "labels": ["sdk", "docs"],
+    "body": "The SDK is `private: true`. If third parties are expected to integrate, publish it with a semver policy tied to contract versions; otherwise state that in the README."
+  },
+  {
+    "title": "SDK: typed event decoders",
+    "labels": ["sdk", "indexer"],
+    "body": "Add `decodeEvent(event)` returning a discriminated union for the contract's topics, shared by the indexer and any client that reads `getEvents`."
+  },
+  {
+    "title": "SDK: retire the shared read-only source account in favour of a per-client option",
+    "labels": ["sdk", "tech-debt"],
+    "body": "`READ_ONLY_SOURCE_ACCOUNT` is a hard-coded testnet address with a friendbot fallback that cannot work on mainnet. Make the read-only source configurable and document the mainnet requirement."
+  },
+  {
+    "title": "Approve/Dashboard: deep-link validation and friendly message for unknown ids",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "`?id=abc` is silently ignored; `?id=999999` shows the generic not-found error. Validate and show a specific message with a link back to discovery."
+  },
+  {
+    "title": "Recents: sync across tabs is via storage events only — add explicit clear-all",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Add a \"Clear\" action to the Recent schedules panel and a note in the privacy section of the README about what is stored locally."
+  },
+  {
+    "title": "Privacy note: what the app stores locally and what leaves the browser",
+    "labels": ["docs", "good first issue"],
+    "body": "Document localStorage keys (theme, recents), that addresses are sent to /api/tx for building, and that nothing is stored server-side."
+  },
+  {
+    "title": "Header: show the configured contract id with an explorer link",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Users should be able to see which contract the app is talking to. Add the shortened contract id to the header/footer with an `Identifier` component."
+  },
+  {
+    "title": "Footer with version, commit SHA, and contract id",
+    "labels": ["web", "good first issue"],
+    "body": "Inject `VERCEL_GIT_COMMIT_SHA` at build time and show it with the app version and contract id, so bug reports can reference exactly what was deployed."
+  },
+  {
+    "title": "Withdraw: preview the exact amount and resulting balance before signing",
+    "labels": ["web", "ux"],
+    "body": "Show \"You will receive 1,250.5 USDC; remaining locked 3,749.5\" on the confirm step, computed from the last read (labelled as an estimate — the contract is authoritative)."
+  },
+  {
+    "title": "Revoke: preview both settlement legs before signing",
+    "labels": ["web", "ux"],
+    "body": "In the revoke confirm panel, show the estimated amount that goes to the beneficiary and the amount returned to the funder, using the last `vested_amount` read."
+  },
+  {
+    "title": "Handle transaction timeout gracefully",
+    "labels": ["web", "ux"],
+    "body": "`waitForTransaction` gives up after ~36 s with a generic error even though the tx may still land. Keep polling in the background, show \"still pending\" with the hash, and reconcile when it finalises."
+  },
+  {
+    "title": "Retry-After handling in the client",
+    "labels": ["web", "api", "good first issue"],
+    "body": "When `/api/tx` returns 429, read `Retry-After` and show a countdown instead of the raw message."
+  },
+  {
+    "title": "Structured logging for the API route",
+    "labels": ["api", "observability", "good first issue"],
+    "body": "`console.error('[api/tx] …')` is the only log line. Emit one structured JSON line per request (type, outcome, duration, rate-limit key hash) without addresses or XDR."
+  },
+  {
+    "title": "Vercel preview environments: per-branch contract id",
+    "labels": ["ci", "docs"],
+    "body": "Document how to point a preview deployment at a freshly deployed contract (env var scoping in Vercel) so contract PRs can be tested end to end before merging."
+  },
+  {
+    "title": "Storybook-driven visual regression (Chromatic or Playwright screenshots)",
+    "labels": ["testing", "web"],
+    "body": "Depends on the component docs issue. Snapshot the schedule card states and the timeline phases in light and dark."
+  },
+  {
+    "title": "Keyboard shortcuts: focus schedule id input, submit with Enter everywhere",
+    "labels": ["web", "accessibility", "good first issue"],
+    "body": "`/` to focus the id field, Enter to load (already on some inputs), Escape to cancel the revoke confirm."
+  },
+  {
+    "title": "Amount display: compact notation and full value on hover",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Very large amounts wrap awkwardly on mobile. Show `1.25M USDC` with the full formatted value in a tooltip."
+  },
+  {
+    "title": "Timeline: show withdrawn markers and next unlock amount",
+    "labels": ["web", "ux"],
+    "body": "Overlay the withdrawn proportion on the vesting bar and, for periodic curves (if the contract adds them), the next unlock amount and time."
+  },
+  {
+    "title": "Create form: signer address book (recent signers)",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Remember signer addresses used before (localStorage) and offer them as chips when filling the signer field."
+  },
+  {
+    "title": "Guard against double-submit on all write buttons",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Buttons disable during a write, but rapid double clicks before state updates can fire twice. Add an in-flight ref guard in `submitWrite` callers."
+  },
+  {
+    "title": "Document the trust model of /api/tx and tx-guard in the README",
+    "labels": ["docs", "security"],
+    "body": "SECURITY.md covers it; the README should have a short section so integrators understand why the browser re-verifies server-built transactions."
+  },
+  {
+    "title": "Replace catch-all error copy with actionable next steps",
+    "labels": ["web", "ux", "good first issue"],
+    "body": "Audit every error string in `lib/errors.ts` and the pages; each should say what to do next (e.g. \"Ask another signer to approve\" rather than only \"Threshold not met\")."
+  }
+]
