@@ -112,3 +112,23 @@ describe('validateTxRequest', () => {
     expect(() => validateTxRequest(body)).toThrow(/must be an array/);
   });
 });
+
+describe('approve_revoke', () => {
+  it('is accepted with the same shape as approve_release', () => {
+    const signer = G();
+    expect(validateTxRequest({ type: 'approve_revoke', scheduleId: '3', signer })).toEqual({
+      type: 'approve_revoke',
+      scheduleId: '3',
+      signer,
+    });
+  });
+
+  it('applies the same validation', () => {
+    expect(() => validateTxRequest({ type: 'approve_revoke', scheduleId: '-1', signer: G() })).toThrow(
+      TxValidationError
+    );
+    expect(() => validateTxRequest({ type: 'approve_revoke', scheduleId: '1', signer: 'nope' })).toThrow(
+      /account address/
+    );
+  });
+});

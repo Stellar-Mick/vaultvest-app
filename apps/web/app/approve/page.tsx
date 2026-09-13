@@ -2,12 +2,20 @@
 
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { BadgeCheck, Loader2, RefreshCw, Search } from 'lucide-react';
+import { BadgeCheck, Ban, Loader2, RefreshCw, Search } from 'lucide-react';
 
-import { getApprovalCount, getSchedule, type Schedule } from '@vaultvest/sdk';
+import {
+  getApprovalCount,
+  getApprovers,
+  getRevokeApprovalCount,
+  getSchedule,
+  type ApprovalKind,
+  type Schedule,
+} from '@vaultvest/sdk';
 
 import { ApprovalProgress } from '@/components/ApprovalProgress';
 import { Identifier } from '@/components/Identifier';
+import { MySchedules } from '@/components/MySchedules';
 import { RecentSchedules } from '@/components/RecentSchedules';
 import { useWallet } from '@/components/WalletProvider';
 import { Badge } from '@/components/ui/badge';
@@ -55,6 +63,10 @@ function ApproveInner() {
   const [scheduleId, setScheduleId] = useState('');
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [approvals, setApprovals] = useState<number | null>(null);
+  /** Revoke approvals; null when unknown or when the contract predates them. */
+  const [revokeApprovals, setRevokeApprovals] = useState<number | null>(null);
+  const [approvers, setApprovers] = useState<{ release: string[]; revoke: string[] } | null>(null);
+  const [mode, setMode] = useState<ApprovalKind>('Release');
   const [loading, setLoading] = useState(false);
   const [approving, setApproving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,16 +85,28 @@ function ApproveInner() {
     }
     setLoading(true);
     try {
+      const client = getSdkClient();
       const [sch, count] = await Promise.all([
-        getSchedule(parsed, getSdkClient()),
-        getApprovalCount(parsed, getSdkClient()),
+        getSchedule(parsed, client),
+        getApprovalCount(parsed, client),
       ]);
       setSchedule(sch);
       setApprovals(count);
+      // Revoke-side reads exist only on the hardened contract. Tolerate their
+      // absence so the page keeps working against an older deployment.
+      const [revokeCount, rel, rev] = await Promise.all([
+        getRevokeApprovalCount(parsed, client).catch(() => null),
+        getApprovers(parsed, 'Release', client).catch(() => null),
+        getApprovers(parsed, 'Revoke', client).catch(() => null),
+      ]);
+      setRevokeApprovals(revokeCount);
+      setApprovers(rel && rev ? { release: rel, revoke: rev } : null);
     } catch (err) {
       setError(getErrorMessage(err));
       setSchedule(null);
       setApprovals(null);
+      setRevokeApprovals(null);
+      setApprovers(null);
     } finally {
       setLoading(false);
     }
@@ -108,14 +132,15 @@ function ApproveInner() {
 
   const handleApprove = async () => {
     if (!wallet || !schedule) return;
+    const fn = mode === 'Release' ? ('approve_release' as const) : ('approve_revoke' as const);
     setError(null);
     setSuccess(null);
     setApproving(true);
     try {
       const { hash } = await submitWrite(
-        { type: 'approve_release', scheduleId: scheduleId.trim(), signer: wallet.address },
+        { type: fn, scheduleId: scheduleId.trim(), signer: wallet.address },
         wallet,
-        { functionName: 'approve_release' }
+        { functionName: fn }
       );
       setSuccess(hash);
       await load(scheduleId);
@@ -127,8 +152,13 @@ function ApproveInner() {
   };
 
   const canApprove = !!wallet && !!schedule && isSigner(schedule, wallet.address);
+  const currentCount = mode === 'Release' ? approvals : revokeApprovals;
   const alreadyMet =
-    approvals !== null && schedule !== null && approvals >= schedule.threshold;
+    currentCount !== null && schedule !== null && currentCount >= schedule.threshold;
+  const alreadyApprovedByMe =
+    !!wallet &&
+    !!approvers &&
+    (mode === 'Release' ? approvers.release : approvers.revoke).includes(wallet.address);
 
   return (
     <main className="container flex min-h-screen flex-col py-12">
@@ -215,18 +245,39 @@ function ApproveInner() {
                 </div>
               </dl>
 
-              {approvals !== null && (
-                <ApprovalProgress approvals={approvals} threshold={schedule.threshold} />
-              )}
+              <div className="space-y-3">
+                <div>
+                  <p className="mb-1 text-xs font-medium">Release</p>
+                  {approvals !== null && (
+                    <ApprovalProgress approvals={approvals} threshold={schedule.threshold} />
+                  )}
+                </div>
+                <div>
+                  <p className="mb-1 text-xs font-medium">Revoke</p>
+                  {revokeApprovals !== null ? (
+                    <ApprovalProgress approvals={revokeApprovals} threshold={schedule.threshold} />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Not available on this contract deployment.
+                    </p>
+                  )}
+                </div>
+              </div>
 
               <div className="text-sm">
                 <p className="mb-1 text-muted-foreground">Signer set</p>
                 <ul className="space-y-1">
                   {schedule.signers.map((s) => (
-                    <li key={s} className="flex items-center gap-2">
+                    <li key={s} className="flex flex-wrap items-center gap-2">
                       <Identifier value={s} kind="address" />
                       {wallet?.address === s && (
                         <Badge variant="outline" className="text-[10px]">you</Badge>
+                      )}
+                      {approvers?.release.includes(s) && (
+                        <Badge variant="secondary" className="text-[10px]">approved release</Badge>
+                      )}
+                      {approvers?.revoke.includes(s) && (
+                        <Badge variant="destructive" className="text-[10px]">approved revoke</Badge>
                       )}
                     </li>
                   ))}
@@ -241,14 +292,38 @@ function ApproveInner() {
                       ? 'You are a signer on this schedule.'
                       : 'Connected wallet is not in this schedule’s signer set.'}
                 </p>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex rounded-md border p-0.5 text-xs" role="tablist" aria-label="Approval kind">
+                    {(['Release', 'Revoke'] as const).map((m) => (
+                      <button
+                        key={m}
+                        type="button"
+                        role="tab"
+                        aria-selected={mode === m}
+                        onClick={() => setMode(m)}
+                        className={
+                          'rounded px-2 py-1 transition-colors ' +
+                          (mode === m ? 'bg-accent text-accent-foreground' : 'text-muted-foreground')
+                        }
+                      >
+                        {m}
+                      </button>
+                    ))}
+                  </div>
                   <Button
                     onClick={() => void handleApprove()}
-                    disabled={approving || !canApprove || schedule.revoked}
-                    title={alreadyMet ? 'Threshold already met — further approvals are optional' : undefined}
+                    disabled={approving || !canApprove || schedule.revoked || alreadyApprovedByMe}
+                    variant={mode === 'Revoke' ? 'destructive' : 'default'}
+                    title={
+                      alreadyApprovedByMe
+                        ? 'You have already approved this'
+                        : alreadyMet
+                          ? 'Threshold already met — further approvals are optional'
+                          : undefined
+                    }
                   >
-                    {approving ? <Loader2 className="animate-spin" /> : <BadgeCheck />}
-                    {approving ? 'Approving…' : 'Approve release'}
+                    {approving ? <Loader2 className="animate-spin" /> : mode === 'Revoke' ? <Ban /> : <BadgeCheck />}
+                    {approving ? 'Approving…' : mode === 'Revoke' ? 'Approve revoke' : 'Approve release'}
                   </Button>
                   <Button
                     variant="ghost"
@@ -270,6 +345,7 @@ function ApproveInner() {
           </Card>
         )}
 
+        <MySchedules basePath="/approve" roleFilter={['signer']} />
         <RecentSchedules basePath="/approve" />
       </div>
     </main>

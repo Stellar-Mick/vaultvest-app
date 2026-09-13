@@ -34,6 +34,10 @@ const VAULTVEST_ERROR_MESSAGES: Record<VaultVestError, string> = {
     'Only the beneficiary can withdraw from this schedule.',
   [VaultVestError.NotFunder]:
     'Only the funder can revoke this schedule.',
+  [VaultVestError.DuplicateSigner]:
+    'The signer list contains the same address more than once — each signer must be unique.',
+  [VaultVestError.TooManySigners]:
+    'Too many signers — a schedule can have at most 32.',
 };
 
 /**

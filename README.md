@@ -55,12 +55,34 @@ See [`.env.example`](apps/web/.env.example) for the full list.
 ## SDK Usage
 
 ```ts
-import { getSchedule, getVestedAmount, buildWithdrawTx } from '@vaultvest/sdk';
+import {
+  buildApproveRevokeTx,
+  buildWithdrawTx,
+  getApprovers,
+  getSchedule,
+  getScheduleCount,
+  getVestedAmount,
+} from '@vaultvest/sdk';
 
 const schedule = await getSchedule(42n);
 const vested = await getVestedAmount(42n);
 const tx = await buildWithdrawTx(42n, beneficiaryAddress);
+
+// Discovery: ids are dense in 0..schedule_count, so a wallet's schedules can be
+// found by enumeration (the contract keeps no per-address index).
+const count = await getScheduleCount();
+
+// Approvals are keyed by intent. Release approvals gate withdraw; revoke
+// approvals gate revoke; neither can be spent on the other.
+const releaseApprovers = await getApprovers(42n, 'Release');
+const revokeTx = await buildApproveRevokeTx(42n, signerAddress);
 ```
+
+> **Contract compatibility.** `getScheduleCount`, `getApprovers`,
+> `getRevokeApprovalCount`, and `buildApproveRevokeTx` require the hardened
+> contract (`vaultvest-contract` `main` from September 2026 on). Against an
+> older deployment the app tolerates their absence for reads and shows a clear
+> message; `approve_revoke` and the settled `revoke` semantics need a redeploy.
 
 ## Contributing
 

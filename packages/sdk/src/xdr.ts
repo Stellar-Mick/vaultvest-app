@@ -11,7 +11,7 @@
  */
 import { Address, nativeToScVal, scValToNative, xdr } from '@stellar/stellar-sdk';
 
-import type { Schedule } from './types.js';
+import type { ApprovalKind, Schedule } from './types.js';
 
 const U64_MIN = 0n;
 const U64_MAX = 0xffff_ffff_ffff_ffffn;
@@ -106,6 +106,19 @@ export function encodeAddress(address: string): xdr.ScVal {
  */
 export function encodeAddressVec(addresses: string[]): xdr.ScVal {
   return xdr.ScVal.scvVec(addresses.map(encodeAddress));
+}
+
+/**
+ * Encode an `ApprovalKind` as the ScVal for the contract's unit-variant enum.
+ *
+ * A `#[contracttype]` enum with unit variants serialises each variant as a
+ * one-element `scvVec` holding the variant name as an `scvSymbol`.
+ *
+ * @param kind - `'Release'` or `'Revoke'`
+ * @returns the ScVal to pass as an `ApprovalKind` contract argument
+ */
+export function encodeApprovalKind(kind: ApprovalKind): xdr.ScVal {
+  return xdr.ScVal.scvVec([xdr.ScVal.scvSymbol(kind)]);
 }
 
 /**

@@ -35,6 +35,7 @@ export type TxRequestBody =
       };
     }
   | { type: 'approve_release'; scheduleId: string; signer: string }
+  | { type: 'approve_revoke'; scheduleId: string; signer: string }
   | { type: 'withdraw'; scheduleId: string; caller: string }
   | { type: 'revoke'; scheduleId: string; caller: string };
 

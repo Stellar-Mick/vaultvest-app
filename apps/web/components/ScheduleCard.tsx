@@ -25,6 +25,11 @@ interface ScheduleCardProps {
   withdrawing: boolean;
   /** True while a revoke transaction is being signed/submitted. */
   revoking: boolean;
+  /**
+   * Revoke approvals collected so far, or null when unknown (older contract).
+   * Display-level gate only — the contract enforces the threshold.
+   */
+  revokeApprovals?: number | null;
   /** Invoked when the beneficiary clicks Withdraw. */
   onWithdraw: () => void;
   /** Invoked when the funder confirms Revoke. */
@@ -57,6 +62,7 @@ export function ScheduleCard({
   walletAddress,
   withdrawing,
   revoking,
+  revokeApprovals = null,
   onWithdraw,
   onRevoke,
 }: ScheduleCardProps) {
@@ -67,7 +73,10 @@ export function ScheduleCard({
   const isFunder = walletAddress === schedule.funder;
   const canWithdraw =
     isBeneficiary && !!vestedAmount && vestedAmount > 0n && !schedule.revoked;
-  const canRevoke = isFunder && !schedule.revoked;
+  const revokeGateMet = revokeApprovals !== null && revokeApprovals >= schedule.threshold;
+  // When the count is unknown (older contract) do not block the button; the
+  // contract will reject and the error mapping explains why.
+  const canRevoke = isFunder && !schedule.revoked && (revokeApprovals === null || revokeGateMet);
   const busy = withdrawing || revoking;
 
   const roleLine = (() => {
@@ -182,9 +191,19 @@ export function ScheduleCard({
                 variant="outline"
                 onClick={() => setConfirmRevoke(true)}
                 disabled={!canRevoke || busy}
+                title={
+                  revokeApprovals !== null && !revokeGateMet
+                    ? `Needs ${schedule.threshold} revoke approvals (${revokeApprovals} so far)`
+                    : undefined
+                }
               >
                 <Ban />
                 Revoke
+                {revokeApprovals !== null && (
+                  <span className="text-xs text-muted-foreground">
+                    {revokeApprovals}/{schedule.threshold}
+                  </span>
+                )}
               </Button>
             )}
           </div>
@@ -194,9 +213,10 @@ export function ScheduleCard({
           <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
             <p className="font-medium">Revoke this schedule?</p>
             <p className="mt-1 text-muted-foreground">
-              This is permanent and enforced on-chain. Once revoked, no further
-              approvals or withdrawals are possible for schedule #
-              {scheduleId.toString()}.
+              This is permanent and enforced on-chain. Revoking settles
+              schedule #{scheduleId.toString()} immediately: whatever has
+              vested is paid to the beneficiary, the rest returns to you, and
+              no further approvals or withdrawals are possible.
             </p>
             <div className="mt-3 flex gap-2">
               <Button

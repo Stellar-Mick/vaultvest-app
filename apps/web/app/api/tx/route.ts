@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import {
   buildApproveReleaseTx,
+  buildApproveRevokeTx,
   buildCreateScheduleTx,
   buildRevokeTx,
   buildWithdrawTx,
@@ -49,6 +50,7 @@ import {
  *   { type: 'create_schedule', params: { funder, beneficiary, token,
  *     totalAmount, startTs, endTs, cliffTs, signers, threshold } }
  *   { type: 'approve_release', scheduleId, signer }
+ *   { type: 'approve_revoke', scheduleId, signer }
  *   { type: 'withdraw', scheduleId, caller }
  *   { type: 'revoke', scheduleId, caller }
  *
@@ -113,6 +115,10 @@ async function buildXdr(request: ValidatedTxRequest): Promise<string> {
     case 'approve_release':
       return (
         await buildApproveReleaseTx(BigInt(request.scheduleId), request.signer)
+      ).toXDR();
+    case 'approve_revoke':
+      return (
+        await buildApproveRevokeTx(BigInt(request.scheduleId), request.signer)
       ).toXDR();
     case 'withdraw':
       return (

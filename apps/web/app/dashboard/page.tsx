@@ -3,9 +3,15 @@
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, RefreshCw, Search } from 'lucide-react';
-import { getSchedule, getVestedAmount, type Schedule } from '@vaultvest/sdk';
+import {
+  getRevokeApprovalCount,
+  getSchedule,
+  getVestedAmount,
+  type Schedule,
+} from '@vaultvest/sdk';
 
 import { Identifier } from '@/components/Identifier';
+import { MySchedules } from '@/components/MySchedules';
 import { RecentSchedules } from '@/components/RecentSchedules';
 import { ScheduleCard } from '@/components/ScheduleCard';
 import { useWallet } from '@/components/WalletProvider';
@@ -42,6 +48,8 @@ function DashboardInner() {
   const [scheduleId, setScheduleId] = useState('');
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [vestedAmount, setVestedAmount] = useState<bigint | null>(null);
+  /** Revoke approvals; null when unknown or when the contract predates them. */
+  const [revokeApprovals, setRevokeApprovals] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [withdrawing, setWithdrawing] = useState(false);
   const [revoking, setRevoking] = useState(false);
@@ -60,16 +68,21 @@ function DashboardInner() {
     }
     setLoading(true);
     try {
-      const [sch, vested] = await Promise.all([
-        getSchedule(parsed, getSdkClient()),
-        getVestedAmount(parsed, getSdkClient()),
+      const client = getSdkClient();
+      const [sch, vested, revokeCount] = await Promise.all([
+        getSchedule(parsed, client),
+        getVestedAmount(parsed, client),
+        // Only on the hardened contract; tolerate absence on older deployments.
+        getRevokeApprovalCount(parsed, client).catch(() => null),
       ]);
       setSchedule(sch);
       setVestedAmount(vested);
+      setRevokeApprovals(revokeCount);
     } catch (err) {
       setError(getErrorMessage(err));
       setSchedule(null);
       setVestedAmount(null);
+      setRevokeApprovals(null);
     } finally {
       setLoading(false);
     }
@@ -170,6 +183,7 @@ function DashboardInner() {
               walletAddress={wallet?.address ?? null}
               withdrawing={withdrawing}
               revoking={revoking}
+              revokeApprovals={revokeApprovals}
               onWithdraw={() => void runWrite('withdraw', setWithdrawing, 'Withdrawal completed')}
               onRevoke={() => void runWrite('revoke', setRevoking, 'Schedule revoked')}
             />
@@ -195,6 +209,7 @@ function DashboardInner() {
           </div>
         )}
 
+        <MySchedules basePath="/dashboard" />
         <RecentSchedules basePath="/dashboard" />
       </div>
     </main>

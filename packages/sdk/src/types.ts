@@ -58,7 +58,21 @@ export enum VaultVestError {
   ScheduleRevoked = 10,
   NotBeneficiary = 11,
   NotFunder = 12,
+  // 13–19 are deliberately unused: the Stellar Asset Contract reports a
+  // missing trustline as contract error #13, and the app special-cases that
+  // number when create_schedule fails inside the nested token transfer.
+  /** The signer set contains the same address more than once. */
+  DuplicateSigner = 20,
+  /** The signer set exceeds the contract's maximum (32). */
+  TooManySigners = 21,
 }
+
+/**
+ * Which action a signer is approving. Mirrors the contract's `ApprovalKind`
+ * enum; release approvals gate `withdraw`, revoke approvals gate `revoke`,
+ * and neither can be spent on the other.
+ */
+export type ApprovalKind = 'Release' | 'Revoke';
 
 /**
  * Reverse lookup: map a numeric contract error code (the `#N` in

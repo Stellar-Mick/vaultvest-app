@@ -1,5 +1,5 @@
 /**
- * contract.ts — typed wrappers for the 7 functions of the deployed VaultVest
+ * contract.ts — typed wrappers for the functions of the deployed VaultVest
  * contract. This file only calls the contract; it never redefines contract logic.
  *
  * Read-only calls (`vested_amount`, `get_schedule`, `get_approval_count`) build an
@@ -15,13 +15,16 @@
 import type { Transaction, xdr } from '@stellar/stellar-sdk';
 
 import { getSorobanClient, SorobanClient } from './client.js';
-import type { Schedule } from './types.js';
+import type { ApprovalKind, Schedule } from './types.js';
 import {
+  decodeAddressVec,
   decodeI128,
   decodeSchedule,
   decodeU32,
+  decodeU64,
   encodeAddress,
   encodeAddressVec,
+  encodeApprovalKind,
   encodeI128,
   encodeU32,
   encodeU64,
@@ -125,6 +128,89 @@ export async function getApprovalCount(
 }
 
 /**
+ * Read how many signers have approved *revocation* of a schedule
+ * (`get_revoke_approval_count`). Revoke approvals are a separate pool from
+ * release approvals and cannot be spent on a withdrawal, or vice versa.
+ *
+ * @param scheduleId - u64 schedule id
+ * @param client - client to use; defaults to the shared env-configured client
+ * @returns the current revoke approval count as a `u32` `number`
+ * @throws {ContractCallError} with {@link VaultVestError.ScheduleNotFound} when
+ *   the schedule does not exist
+ * @throws {Error} on RPC/network failures, or if the deployed contract predates
+ *   this entrypoint
+ */
+export async function getRevokeApprovalCount(
+  scheduleId: bigint | number,
+  client: SorobanClient = getSorobanClient()
+): Promise<number> {
+  const source = await client.getReadOnlyAccount();
+  const tx = client.buildTransaction(
+    source,
+    client.contract.call('get_revoke_approval_count', encodeU64(toU64(scheduleId))),
+    { fee: READ_ONLY_FEE }
+  );
+  const sim = await client.simulate(tx);
+  return decodeU32(requireRetval(sim.result, 'get_revoke_approval_count'));
+}
+
+/**
+ * Read which signers have approved `kind` on a schedule, in approval order
+ * (`get_approvers`).
+ *
+ * @param scheduleId - u64 schedule id
+ * @param kind - `'Release'` or `'Revoke'`
+ * @param client - client to use; defaults to the shared env-configured client
+ * @returns the approving signers' G... addresses
+ * @throws {ContractCallError} with {@link VaultVestError.ScheduleNotFound} when
+ *   the schedule does not exist
+ * @throws {Error} on RPC/network failures, or if the deployed contract predates
+ *   this entrypoint
+ */
+export async function getApprovers(
+  scheduleId: bigint | number,
+  kind: ApprovalKind,
+  client: SorobanClient = getSorobanClient()
+): Promise<string[]> {
+  const source = await client.getReadOnlyAccount();
+  const tx = client.buildTransaction(
+    source,
+    client.contract.call(
+      'get_approvers',
+      encodeU64(toU64(scheduleId)),
+      encodeApprovalKind(kind)
+    ),
+    { fee: READ_ONLY_FEE }
+  );
+  const sim = await client.simulate(tx);
+  return decodeAddressVec(requireRetval(sim.result, 'get_approvers'));
+}
+
+/**
+ * Read the number of schedules ever created (`schedule_count`). Ids are dense
+ * in `0..count`, so this is the enumeration primitive: iterate
+ * {@link getSchedule} over the range and filter by role to find a wallet's
+ * schedules — the contract keeps no per-address index.
+ *
+ * @param client - client to use; defaults to the shared env-configured client
+ * @returns the schedule count as a `u64` `bigint`
+ * @throws {Error} on RPC/network failures, or if the deployed contract predates
+ *   this entrypoint
+ */
+export async function getScheduleCount(
+  client: SorobanClient = getSorobanClient()
+): Promise<bigint> {
+  const source = await client.getReadOnlyAccount();
+  const tx = client.buildTransaction(
+    source,
+    client.contract.call('schedule_count'),
+    { fee: READ_ONLY_FEE }
+  );
+  const sim = await client.simulate(tx);
+  return decodeU64(requireRetval(sim.result, 'schedule_count'));
+}
+
+/**
  * Arguments for {@link buildCreateScheduleTx}, mirroring the `create_schedule`
  * function signature (see Section 3 of the spec).
  */
@@ -212,6 +298,39 @@ export async function buildApproveReleaseTx(
     source,
     client.contract.call(
       'approve_release',
+      encodeU64(toU64(scheduleId)),
+      encodeAddress(signer)
+    )
+  );
+  return client.prepare(tx);
+}
+
+/**
+ * Build a prepared, unsigned `approve_revoke` transaction for a signer to sign
+ * with Freighter. Revoke approvals gate `revoke` only; they cannot be spent on
+ * a withdrawal.
+ *
+ * @param scheduleId - u64 schedule id to approve revocation of
+ * @param signer - G... address of the approving signer (transaction source)
+ * @param client - client to use; defaults to the shared env-configured client
+ * @returns the prepared unsigned `Transaction`; serialize with `.toXDR()`
+ * @throws {ContractCallError} with {@link VaultVestError.ScheduleNotFound},
+ *   {@link VaultVestError.NotAuthorizedSigner},
+ *   {@link VaultVestError.DuplicateApproval}, or
+ *   {@link VaultVestError.ScheduleRevoked} when the contract rejects the call
+ * @throws {Error} if the signer account does not exist, on RPC failures, or if
+ *   the deployed contract predates this entrypoint
+ */
+export async function buildApproveRevokeTx(
+  scheduleId: bigint | number,
+  signer: string,
+  client: SorobanClient = getSorobanClient()
+): Promise<Transaction> {
+  const source = await client.getAccount(signer);
+  const tx = client.buildTransaction(
+    source,
+    client.contract.call(
+      'approve_revoke',
       encodeU64(toU64(scheduleId)),
       encodeAddress(signer)
     )

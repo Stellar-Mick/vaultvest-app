@@ -115,6 +115,7 @@ export interface ValidatedCreateScheduleBody {
 export type ValidatedTxRequest =
   | { type: 'create_schedule'; params: ValidatedCreateScheduleBody }
   | { type: 'approve_release'; scheduleId: string; signer: string }
+  | { type: 'approve_revoke'; scheduleId: string; signer: string }
   | { type: 'withdraw'; scheduleId: string; caller: string }
   | { type: 'revoke'; scheduleId: string; caller: string };
 
@@ -187,6 +188,12 @@ export function validateTxRequest(raw: unknown): ValidatedTxRequest {
         scheduleId: uintString(body.scheduleId, 'scheduleId', U64_MAX),
         signer: accountAddress(body.signer, 'signer'),
       };
+    case 'approve_revoke':
+      return {
+        type: 'approve_revoke',
+        scheduleId: uintString(body.scheduleId, 'scheduleId', U64_MAX),
+        signer: accountAddress(body.signer, 'signer'),
+      };
     case 'withdraw':
       return {
         type: 'withdraw',
@@ -203,7 +210,7 @@ export function validateTxRequest(raw: unknown): ValidatedTxRequest {
       // The unknown value is never echoed back — it is attacker-controlled and
       // would be reflected into the response body.
       fail(
-        'Unknown transaction type. Expected one of: create_schedule, approve_release, withdraw, revoke.'
+        'Unknown transaction type. Expected one of: create_schedule, approve_release, approve_revoke, withdraw, revoke.'
       );
   }
 }
